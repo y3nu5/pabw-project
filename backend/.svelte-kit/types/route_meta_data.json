@@ -1,5 +1,8 @@
 {
 	"/": [],
+	"/api/admin-chat": [
+		"src/routes/api/admin-chat/+server.js"
+	],
 	"/api/auth/login": [
 		"src/routes/api/auth/login/+server.js"
 	],

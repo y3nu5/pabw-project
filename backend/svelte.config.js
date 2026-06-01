@@ -4,10 +4,11 @@ import adapter from '@sveltejs/adapter-auto';
 const config = {
 	kit: {
 		adapter: adapter(),
-		// Karena ini API-only, kita mungkin ingin mengizinkan CORS
-		// Tapi CORS biasanya ditangani di level middleware atau hook
 		csrf: {
-			checkOrigin: false,
+			trustedOrigins: ['http://localhost:5173', 'http://localhost:3000']
+		},
+		alias: {
+			'$lib': 'src/lib'
 		}
 	}
 };

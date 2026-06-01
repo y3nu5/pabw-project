@@ -4,11 +4,17 @@
   let { onCommand } = $props();
   let query = $state('');
   let logs = $state([
-    { role: 'system', text: 'Admin AI Console aktif. Gunakan bahasa natural untuk mengelola hotel.' },
-    { role: 'system', text: 'Contoh: "Tambah kamar Deluxe code DLX-101", "Cari reservasi Siti", "Ubah status kamar SUP-01 jadi maintenance"' }
+    { role: 'system', text: 'Admin AI Console v1.0 aktif' },
+    { role: 'system', text: 'Fitur: Kelola reservasi, kamar, dan lihat analytics' },
+    { role: 'system', text: 'Contoh: "Lihat booking pending", "Cari reservasi Siti", "Berapa occupancy rate hari ini?"' }
   ]);
   let isProcessing = $state(false);
   let logContainer;
+  
+  // Conversation messages for the API
+  let conversationMessages = $state([
+    { role: 'user', content: '' }
+  ]);
 
   function scrollToBottom() {
     if (logContainer) {
@@ -27,24 +33,36 @@
     
     setTimeout(scrollToBottom, 10);
 
-    // Placeholder for Agentic AI Logic
-    // In a real implementation, this would call a specialized endpoint
     try {
-      // Simulating processing delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      let response = "Maaf, fitur Agentic AI sedang dalam tahap integrasi. Saya memahami perintah Anda: \"" + userMsg + "\"";
-      
-      // Basic mock logic for demonstration
-      if (userMsg.toLowerCase().includes('tambah kamar')) {
-        response = "Membuka formulir penambahan kamar berdasarkan instruksi Anda...";
-      } else if (userMsg.toLowerCase().includes('cari')) {
-        response = "Mencari data yang relevan di database...";
+      // Add user message to conversation
+      conversationMessages = [...conversationMessages, { role: 'user', content: userMsg }];
+
+      // Call backend admin-chat endpoint
+      const response = await fetch('/api/admin-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          messages: conversationMessages
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
       }
 
-      logs = [...logs, { role: 'assistant', text: response }];
+      const data = await response.json();
+      const aiReply = data.reply || 'Maaf, tidak ada respons dari sistem.';
+
+      // Add AI response to conversation
+      conversationMessages = [...conversationMessages, { role: 'assistant', content: aiReply }];
+      
+      // Display in logs
+      logs = [...logs, { role: 'assistant', text: aiReply }];
     } catch (err) {
-      logs = [...logs, { role: 'system', text: 'Error: Gagal memproses perintah.' }];
+      const errorMsg = err instanceof Error ? err.message : 'Gagal memproses perintah.';
+      logs = [...logs, { role: 'system', text: `Error: ${errorMsg}` }];
     } finally {
       isProcessing = false;
       setTimeout(scrollToBottom, 10);
