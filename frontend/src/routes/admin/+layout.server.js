@@ -1,32 +1,35 @@
 import { redirect } from '@sveltejs/kit';
-import { getAuthenticatedUser } from '$lib/server/auth';
-import { query } from '$lib/server/db';
+import { env } from '$env/dynamic/public';
+
+const backendBaseUrl = (env.PUBLIC_BACKEND_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 /** @type {import('./$types').LayoutServerLoad} */
-export async function load({ cookies, url }) {
-	const authUser = getAuthenticatedUser(cookies);
 
-	if (!authUser) {
+export async function load({ cookies, fetch, url }) {
+	const cookieHeader = cookies
+		.getAll()
+		.map(({ name, value }) => `${name}=${encodeURIComponent(value)}`)
+		.join('; ');
+
+	const res = await fetch(`${backendBaseUrl}/api/auth/me`, {
+		method: 'GET',
+		headers: cookieHeader ? { cookie: cookieHeader } : {}
+	});
+
+	if (res.status === 401) {
 		throw redirect(302, `/login?redirectTo=${url.pathname}`);
 	}
 
-	if (authUser.role !== 'admin') {
+	if (!res.ok) {
 		throw redirect(302, '/');
 	}
 
-	// Fetch full user details
-	const { rows } = await query(
-		`SELECT id, email, role, first_name, last_name 
-		 FROM users 
-		 WHERE id = $1`,
-		[authUser.id]
-	);
+	const payload = await res.json().catch(() => ({}));
+	const user = payload?.data;
 
-	if (rows.length === 0) {
-		throw redirect(302, '/login');
+	if (!user || user.role !== 'admin') {
+		throw redirect(302, '/');
 	}
 
-	return {
-		user: rows[0]
-	};
+	return { user };
 }
