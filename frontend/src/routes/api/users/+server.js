@@ -1,22 +1,30 @@
 import { json } from '@sveltejs/kit';
-import { getAuthenticatedUser } from '$lib/server/auth';
-import { query } from '$lib/server/db';
+import { env } from '$env/dynamic/public';
+
+const backendBaseUrl = (env.PUBLIC_BACKEND_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 /** @type {import('./$types').RequestHandler} */
-export async function GET({ cookies }) {
-	const authUser = getAuthenticatedUser(cookies);
-	if (authUser?.role !== 'admin') {
-		return json({ error: 'Unauthorized.' }, { status: 401 });
-	}
-
+export async function GET({ cookies, fetch }) {
 	try {
-		const { rows } = await query(
-			`SELECT id, email, first_name, last_name, role, created_at
-			 FROM users
-			 ORDER BY created_at DESC`
-		);
+		const cookieHeader = cookies
+			.getAll()
+			.map(({ name, value }) => `${name}=${encodeURIComponent(value)}`)
+			.join('; ');
 
-		return json({ data: rows });
+		const res = await fetch(`${backendBaseUrl}/api/users`, {
+			method: 'GET',
+			headers: cookieHeader ? { cookie: cookieHeader } : {}
+		});
+
+		const body = await res.text();
+		let payload = {};
+		try {
+			payload = body ? JSON.parse(body) : {};
+		} catch {
+			payload = { error: 'Respon backend tidak valid.' };
+		}
+
+		return json(payload, { status: res.status });
 	} catch (error) {
 		console.error('GET /api/users error:', error);
 		return json({ error: 'Gagal mengambil data user.' }, { status: 500 });

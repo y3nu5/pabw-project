@@ -29,5 +29,8 @@
 	],
 	"/api/rooms/[id]": [
 		"src/routes/api/rooms/[id]/+server.js"
+	],
+	"/api/users": [
+		"src/routes/api/users/+server.js"
 	]
 }

@@ -29,7 +29,7 @@ declare module "$app/types" {
 	type MatcherParam<M> = M extends (param : string) => param is (infer U extends string) ? U : string;
 
 	export interface AppTypes {
-		RouteId(): "/" | "/api" | "/api/admin-chat" | "/api/auth" | "/api/auth/login" | "/api/auth/logout" | "/api/auth/me" | "/api/auth/register" | "/api/bookings" | "/api/chat" | "/api/health" | "/api/rooms" | "/api/rooms/[id]";
+		RouteId(): "/" | "/api" | "/api/admin-chat" | "/api/auth" | "/api/auth/login" | "/api/auth/logout" | "/api/auth/me" | "/api/auth/register" | "/api/bookings" | "/api/chat" | "/api/health" | "/api/rooms" | "/api/rooms/[id]" | "/api/users";
 		RouteParams(): {
 			"/api/rooms/[id]": { id: string }
 		};
@@ -46,9 +46,10 @@ declare module "$app/types" {
 			"/api/chat": Record<string, never>;
 			"/api/health": Record<string, never>;
 			"/api/rooms": { id?: string };
-			"/api/rooms/[id]": { id: string }
+			"/api/rooms/[id]": { id: string };
+			"/api/users": Record<string, never>
 		};
-		Pathname(): "/" | "/api/admin-chat" | "/api/auth/login" | "/api/auth/logout" | "/api/auth/me" | "/api/auth/register" | "/api/bookings" | "/api/chat" | "/api/health" | "/api/rooms" | `/api/rooms/${string}` & {};
+		Pathname(): "/" | "/api/admin-chat" | "/api/auth/login" | "/api/auth/logout" | "/api/auth/me" | "/api/auth/register" | "/api/bookings" | "/api/chat" | "/api/health" | "/api/rooms" | `/api/rooms/${string}` & {} | "/api/users";
 		ResolvedPathname(): `${"" | `/${string}`}${ReturnType<AppTypes['Pathname']>}`;
 		Asset(): string & {};
 	}
