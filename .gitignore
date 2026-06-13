@@ -9,3 +9,10 @@ node_modules/
 # Supabase local artifacts
 .supabase/
 supabase/.temp/
+
+# Vercel build output (jangan di-commit)
+.vercel/
+**/.vercel/
+
+# SvelteKit build output
+**/.svelte-kit/
