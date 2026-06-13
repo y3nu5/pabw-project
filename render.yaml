@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: grand-maison-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: node build
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 20
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: JWT_COOKIE_MAX_AGE
+        value: "604800"
+      - key: BCRYPT_SALT_ROUNDS
+        value: "12"
+      - key: OLLAMA_BASE_URL
+        value: https://ollama.com
+      - key: OLLAMA_MODEL
+        value: gemma3:4b
+      - key: OLLAMA_API_KEY
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
