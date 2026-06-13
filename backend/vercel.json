@@ -1,0 +1,7 @@
+{
+  "framework": "sveltekit",
+  "functions": {
+    "api/chat.js": { "maxDuration": 30 },
+    "api/admin-chat.js": { "maxDuration": 30 }
+  }
+}

@@ -1,15 +1,18 @@
-import adapter from '@sveltejs/adapter-node';
+import adapter from '@sveltejs/adapter-vercel';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
 	kit: {
-		adapter: adapter(),
+		adapter: adapter({
+			// Pakai Node.js runtime (bukan edge) karena backend pakai pg, bcryptjs, jwt
+			runtime: 'nodejs22.x'
+		}),
 		csrf: {
 			trustedOrigins: [
 				'http://localhost:5173',
 				'http://localhost:3000',
-				// Tambahkan URL Vercel kamu di sini setelah deploy frontend:
-				// 'https://nama-project.vercel.app',
+				// Tambahkan URL Vercel frontend kamu di sini setelah deploy:
+				// 'https://grand-maison-frontend.vercel.app',
 			]
 		},
 		alias: {
