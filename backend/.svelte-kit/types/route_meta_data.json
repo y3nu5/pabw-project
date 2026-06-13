@@ -3,6 +3,9 @@
 	"/api/admin-chat": [
 		"src/routes/api/admin-chat/+server.js"
 	],
+	"/api/admin/stats": [
+		"src/routes/api/admin/stats/+server.js"
+	],
 	"/api/auth/login": [
 		"src/routes/api/auth/login/+server.js"
 	],
@@ -18,6 +21,12 @@
 	"/api/bookings": [
 		"src/routes/api/bookings/+server.js"
 	],
+	"/api/bookings/my": [
+		"src/routes/api/bookings/my/+server.js"
+	],
+	"/api/bookings/[id]": [
+		"src/routes/api/bookings/[id]/+server.js"
+	],
 	"/api/chat": [
 		"src/routes/api/chat/+server.js"
 	],
@@ -32,5 +41,8 @@
 	],
 	"/api/users": [
 		"src/routes/api/users/+server.js"
+	],
+	"/api/users/[id]": [
+		"src/routes/api/users/[id]/+server.js"
 	]
 }

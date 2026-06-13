@@ -2,6 +2,8 @@
   import { page } from '$app/state';
   import { onMount } from 'svelte';
 
+  import { API_BASE_URL } from '$lib/config/api';
+
   let { children, data } = $props();
   let isSidebarOpen = $state(false);
   
@@ -13,8 +15,11 @@
   ];
 
   async function handleLogout() {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    window.location.href = '/login';
+    await fetch(`${API_BASE_URL}/api/auth/logout`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    window.location.href = '/';
   }
 
   // Close sidebar on navigation (mobile)

@@ -4,7 +4,19 @@ import { getAuthenticatedUser } from '$lib/server/auth';
 import { query } from '$lib/server/db';
 
 const OLLAMA_BASE_URL = (env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/$/, '');
-const OLLAMA_MODEL = env.OLLAMA_MODEL || 'mistral:7b';
+const OLLAMA_MODEL = env.OLLAMA_MODEL || 'qwen2.5:3b';
+
+// Deteksi provider
+const IS_GROQ = OLLAMA_BASE_URL.includes('api.groq.com');
+const IS_OPENAI_COMPAT = IS_GROQ || [
+	'api.siliconflow.cn',
+	'openrouter.ai',
+	'api.openai.com',
+	'api.together.xyz'
+].some((host) => OLLAMA_BASE_URL.includes(host));
+
+// Deteksi apakah pakai Ollama Cloud (ollama.com)
+const IS_OLLAMA_CLOUD = OLLAMA_BASE_URL.includes('ollama.com');
 const MAX_AGENT_STEPS = 5;
 const TAX_RATE = 0.11;
 
@@ -20,6 +32,9 @@ Kemampuan Anda:
 - Lihat dan cari reservasi (by status, guest name, reference)
 - Update status reservasi (pending → confirmed, cancelled, checked_in, checked_out)
 - Lihat daftar kamar dan ketersediaannya
+- Tambah kamar baru ke database secara otomatis
+- Hapus kamar berdasarkan kodenya
+- Buat reservasi baru (booking manual oleh admin) secara otomatis
 - Analisis data: revenue harian, occupancy rate, booking pending
 - Hitung harga kamar dengan pajak 11%
 
@@ -59,6 +74,20 @@ Tools yang tersedia:
 
 5) get_analytics(input: { metric: string })
    - metric: "revenue_today", "occupancy_rate", "pending_bookings", "total_stats"
+
+6) create_room(input: { code: string, name: string, category: string, description: string, price_per_night: number, size_sqm: number, max_guests: number, features?: string[] })
+   - Buat kamar baru di database.
+   - code: unik (misal: GM-301)
+   - category: "Superior", "Deluxe", atau "Suite"
+   - features: array of string (misal: ["WiFi", "AC", "TV"])
+
+7) delete_room(input: { room_code: string })
+   - Hapus kamar dari database berdasarkan kodenya.
+
+8) create_booking(input: { room_code: string, first_name: string, last_name: string, email: string, phone: string, check_in: string, check_out: string, guests: number, payment_method?: string, special_request?: string })
+   - Buat reservasi/booking baru untuk tamu secara manual oleh admin.
+   - check_in & check_out format YYYY-MM-DD
+   - payment_method: "transfer", "card", atau "cash"
 
 Contoh JSON yang benar:
 {"action":"tool","tool":"list_bookings","input":{"status":"pending","limit":5}}
@@ -135,7 +164,7 @@ async function listBookings(input) {
 			b.check_out,
 			b.guests,
 			b.status,
-			b.total_price,
+			b.grand_total,
 			b.created_at,
 			r.name as room_name,
 			r.code as room_code
@@ -167,8 +196,8 @@ async function listBookings(input) {
 				guests: b.guests,
 				status: b.status,
 				room: `${b.room_name} (${b.room_code})`,
-				total_price: b.total_price,
-				total_price_formatted: formatRupiah(b.total_price),
+				total_price: b.grand_total,
+				total_price_formatted: formatRupiah(b.grand_total),
 				created_at: b.created_at
 			}))
 		};
@@ -198,7 +227,7 @@ async function searchBooking(input) {
 				b.check_out,
 				b.guests,
 				b.status,
-				b.total_price,
+				b.grand_total,
 				b.created_at,
 				r.name as room_name,
 				r.code as room_code
@@ -231,8 +260,8 @@ async function searchBooking(input) {
 				guests: b.guests,
 				status: b.status,
 				room: `${b.room_name} (${b.room_code})`,
-				total_price: b.total_price,
-				total_price_formatted: formatRupiah(b.total_price),
+				total_price: b.grand_total,
+				total_price_formatted: formatRupiah(b.grand_total),
 				created_at: b.created_at
 			}))
 		};
@@ -415,6 +444,118 @@ async function getAnalytics(input) {
 	}
 }
 
+async function createRoom(input) {
+	const code = toText(input.code).toUpperCase();
+	const name = toText(input.name);
+	const category = toText(input.category);
+	const description = toText(input.description);
+	const price_per_night = Math.trunc(toNumber(input.price_per_night));
+	const size_sqm = parseFloat(input.size_sqm);
+	const max_guests = Math.trunc(toNumber(input.max_guests));
+	const features = Array.isArray(input.features) ? input.features : [];
+
+	if (!code || !name || !category || !description || isNaN(price_per_night) || isNaN(size_sqm) || isNaN(max_guests)) {
+		return { error: 'Semua field wajib diisi (code, name, category, description, price_per_night, size_sqm, max_guests).' };
+	}
+
+	try {
+		const { rows } = await query(
+			`INSERT INTO rooms (
+				code, name, category, description, price_per_night, size_sqm, max_guests, features, is_available
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
+			RETURNING *`,
+			[code, name, category, description, price_per_night, size_sqm, max_guests, JSON.stringify(features)]
+		);
+		return {
+			success: true,
+			message: `Kamar ${name} (${code}) berhasil dibuat.`,
+			room: rows[0]
+		};
+	} catch (error) {
+		if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
+			return { error: `Kode kamar ${code} sudah terdaftar.` };
+		}
+		return { error: `Database error: ${error.message}` };
+	}
+}
+
+async function deleteRoom(input) {
+	const code = toText(input.room_code).toUpperCase();
+	if (!code) {
+		return { error: 'room_code wajib diisi.' };
+	}
+
+	try {
+		const { rowCount } = await query(`DELETE FROM rooms WHERE LOWER(code) = LOWER($1)`, [code]);
+		if (rowCount === 0) {
+			return { error: `Kamar dengan kode ${code} tidak ditemukan.` };
+		}
+		return {
+			success: true,
+			message: `Kamar dengan kode ${code} berhasil dihapus.`
+		};
+	} catch (error) {
+		return { error: `Database error: ${error.message}` };
+	}
+}
+
+async function createBooking(input) {
+	const room_code = toText(input.room_code).toUpperCase();
+	const first_name = toText(input.first_name);
+	const last_name = toText(input.last_name);
+	const email = toText(input.email);
+	const phone = toText(input.phone);
+	const check_in = toText(input.check_in);
+	const check_out = toText(input.check_out);
+	const guests = Math.trunc(toNumber(input.guests));
+	const payment_method = toText(input.payment_method) || 'transfer';
+	const special_request = toText(input.special_request);
+
+	if (!room_code || !first_name || !last_name || !email || !check_in || !check_out || isNaN(guests)) {
+		return { error: 'Field room_code, first_name, last_name, email, check_in, check_out, dan guests wajib diisi.' };
+	}
+
+	try {
+		const { rows: roomRows } = await query(`SELECT * FROM rooms WHERE LOWER(code) = LOWER($1)`, [room_code]);
+		if (roomRows.length === 0) {
+			return { error: `Kamar dengan kode ${room_code} tidak ditemukan.` };
+		}
+		const room = roomRows[0];
+
+		const checkInDate = new Date(check_in);
+		const checkOutDate = new Date(check_out);
+		const diffTime = checkOutDate.getTime() - checkInDate.getTime();
+		const nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+		if (nights <= 0) {
+			return { error: 'Check-out harus setelah check-in.' };
+		}
+
+		const subtotal = room.price_per_night * nights;
+		const tax = Math.round(subtotal * TAX_RATE);
+		const grandTotal = subtotal + tax;
+
+		const ref = 'GM' + Math.random().toString(36).substring(2, 9).toUpperCase();
+
+		const { rows } = await query(
+			`INSERT INTO bookings (
+				booking_reference, room_id, check_in, check_out, guests,
+				first_name, last_name, email, phone, nationality, special_request,
+				payment_method, subtotal, tax_amount, grand_total, status
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'ID', $10, $11, $12, $13, $14, 'confirmed')
+			RETURNING *`,
+			[ref, room.id, check_in, check_out, guests, first_name, last_name, email, phone, special_request, payment_method, subtotal, tax, grandTotal]
+		);
+
+		return {
+			success: true,
+			message: `Booking berhasil dibuat dengan referensi ${ref} untuk kamar ${room.name}.`,
+			booking: rows[0]
+		};
+	} catch (error) {
+		return { error: `Database error: ${error.message}` };
+	}
+}
+
 /**
  * @param {string} toolName
  * @param {unknown} rawInput
@@ -434,6 +575,12 @@ async function runAdminTool(toolName, rawInput) {
 			return await listRooms(input);
 		case 'get_analytics':
 			return await getAnalytics(input);
+		case 'create_room':
+			return await createRoom(input);
+		case 'delete_room':
+			return await deleteRoom(input);
+		case 'create_booking':
+			return await createBooking(input);
 		default:
 			return { error: `Tool tidak ditemukan: ${toolName}` };
 	}
@@ -473,17 +620,47 @@ function isOllamaUnavailable(error) {
  */
 async function callOllama(messages) {
 	let response;
+	let url;
+	let body;
+
+	if (IS_OPENAI_COMPAT) {
+		// Groq pakai /openai/v1/, provider lain pakai /v1/
+		const base = OLLAMA_BASE_URL.replace(/\/(openai\/)?v1\/?$/, '');
+		const apiPath = IS_GROQ ? '/openai/v1/chat/completions' : '/v1/chat/completions';
+		url = `${base}${apiPath}`;
+		body = JSON.stringify({
+			model: OLLAMA_MODEL,
+			stream: false,
+			messages
+		});
+	} else {
+		// Format Ollama native (lokal atau ollama.com cloud)
+		const base = IS_OLLAMA_CLOUD ? 'https://ollama.com' : OLLAMA_BASE_URL;
+		url = `${base}/api/chat`;
+		body = JSON.stringify({
+			model: OLLAMA_MODEL,
+			stream: false,
+			messages
+		});
+	}
+
+	console.log('[DEBUG callOllama] URL:', url);
+	console.log('[DEBUG callOllama] Model:', OLLAMA_MODEL);
+	console.log('[DEBUG callOllama] Mode:', IS_OPENAI_COMPAT ? 'OpenAI-compat' : IS_OLLAMA_CLOUD ? 'Ollama Cloud' : 'Ollama Local');
+	console.log('[DEBUG callOllama] API Key set:', !!env.OLLAMA_API_KEY);
+
+	const headers = {
+		'Content-Type': 'application/json'
+	};
+	if (env.OLLAMA_API_KEY) {
+		headers['Authorization'] = `Bearer ${env.OLLAMA_API_KEY.trim()}`;
+	}
+
 	try {
-		response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+		response = await fetch(url, {
 			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({
-				model: OLLAMA_MODEL,
-				stream: false,
-				messages
-			})
+			headers,
+			body
 		});
 	} catch (error) {
 		const message =
@@ -499,9 +676,17 @@ async function callOllama(messages) {
 	}
 
 	const data = await response.json();
-	const content = toText(data?.message?.content);
+	let content = '';
+	if (IS_OPENAI_COMPAT) {
+		// OpenAI format: data.choices[0].message.content
+		content = toText(data?.choices?.[0]?.message?.content);
+	} else {
+		// Ollama native format: data.message.content
+		content = toText(data?.message?.content);
+	}
+
 	if (!content) {
-		throw new Error('Ollama tidak mengembalikan konten respons.');
+		throw new Error('AI tidak mengembalikan konten respons.');
 	}
 
 	return content;

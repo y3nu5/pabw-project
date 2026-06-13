@@ -13,7 +13,7 @@ const pool = new Pool({
 	ssl:
 		process.env.DATABASE_SSL === 'true' ||
 		process.env.DATABASE_SSL === '1' ||
-		process.env.PGSSLMODE === 'require'
+		process.env.PGSSLM.mjsODE === 'require'
 			? { rejectUnauthorized: false }
 			: undefined
 });

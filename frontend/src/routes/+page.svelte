@@ -1,8 +1,33 @@
 <script>
   import { onMount } from 'svelte';
+  import { API_BASE_URL } from '$lib/config/api';
+  import BookingFlow from '$lib/components/BookingFlow.svelte';
 
-  let visible = false;
-  onMount(() => { setTimeout(() => visible = true, 100); });
+  let visible = $state(false);
+  /** @type {any} */
+  let user = $state(null);
+  let loadingUser = $state(true);
+
+  onMount(async () => {
+    setTimeout(() => visible = true, 100);
+    await loadUser();
+  });
+
+  async function loadUser() {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
+        credentials: 'include'
+      });
+      if (res.ok) {
+        const json = await res.json();
+        user = json.data || null;
+      }
+    } catch (err) {
+      console.error('Failed to load user in home page:', err);
+    } finally {
+      loadingUser = false;
+    }
+  }
 
   const amenities = [
     { icon: '✦', title: 'Grand Dining', desc: 'Restoran fine dining dengan menu Perancis-Jawa klasik yang menggugah selera.' },
@@ -32,10 +57,10 @@
   ];
 
   // Booking form
-  let checkIn = '';
-  let checkOut = '';
-  let guests = '2';
-  let roomType = '';
+  let checkIn = $state('');
+  let checkOut = $state('');
+  let guests = $state('2');
+  let roomType = $state('');
 
   function handleQuickBook() {
     const params = new URLSearchParams({ checkIn, checkOut, guests, roomType });
@@ -47,244 +72,243 @@
   <title>Grand Maison — Penginapan Mewah Bergaya Victoria</title>
 </svelte:head>
 
-<!-- ═══════════════════════ HERO ═══════════════════════ -->
-<section class="relative min-h-screen flex items-center justify-center overflow-hidden">
-  <!-- Background gradient -->
-  <div class="absolute inset-0 bg-gradient-to-b from-velvet-900 via-velvet-800 to-velvet-900"></div>
-  
-  <!-- Decorative circles / halos -->
-  <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-175 h-175 rounded-full border border-gold-700/10"></div>
-  <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full border border-gold-600/10"></div>
-  <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] rounded-full border border-gold-500/15"></div>
-
-  <!-- Baroque pattern overlay -->
-  <div class="absolute inset-0 bg-baroque-pattern opacity-30"></div>
-
-  <!-- Corner ornaments -->
-  <div class="absolute top-8 left-8 text-gold-600/30 text-5xl select-none leading-none font-display">❦</div>
-  <div class="absolute top-8 right-8 text-gold-600/30 text-5xl select-none leading-none font-display" style="transform: scaleX(-1)">❦</div>
-  <div class="absolute bottom-8 left-8 text-gold-600/30 text-5xl select-none leading-none font-display" style="transform: scaleY(-1)">❦</div>
-  <div class="absolute bottom-8 right-8 text-gold-600/30 text-5xl select-none leading-none font-display" style="transform: scale(-1)">❦</div>
-
-  <!-- Content -->
-  <div class="relative z-10 text-center px-6 max-w-4xl mx-auto">
-    <div class="opacity-0 animate-fade-in" class:opacity-100={visible}>
-      <p class="text-gold-500 text-xs tracking-[0.5em] uppercase mb-6 font-body">
-        ✦ &nbsp; Selamat Datang di &nbsp; ✦
-      </p>
+{#if loadingUser}
+  <div class="min-h-screen bg-[#09040c] flex items-center justify-center text-[#d4a017] font-serif italic text-lg">
+    Memuat...
+  </div>
+{:else if user}
+  <!-- Direct Booking Flow when logged in -->
+  <div class="py-12 bg-velvet-900 min-h-screen">
+    <div class="relative py-8 px-6 text-center border-b border-gold-700/20 mb-8">
+      <p class="text-gold-500 text-xs tracking-[0.4em] uppercase font-body mb-3">Grand Maison</p>
+      <h1 class="font-display text-4xl md:text-5xl text-ivory-100">Reservasi Kamar Anda</h1>
+      <p class="text-ivory-600 font-serif italic mt-2">Halo, {user.first_name}. Silakan tentukan tanggal menginap dan pilih tipe kamar yang Anda inginkan.</p>
     </div>
+    <BookingFlow />
+  </div>
+{:else}
+  <!-- Original Landing Page when not logged in -->
+  <!-- ═══════════════════════ HERO ═══════════════════════ -->
+  <section class="relative min-h-screen flex items-center justify-center overflow-hidden">
+    <!-- Background gradient -->
+    <div class="absolute inset-0 bg-gradient-to-b from-velvet-900 via-velvet-800 to-velvet-900"></div>
     
-    <div class="opacity-0 animate-slide-up delay-200" class:opacity-100={visible}>
-      <h1 class="font-display text-6xl md:text-8xl lg:text-9xl text-ivory-100 leading-[0.9] tracking-tight mb-2">
-        Grand
-      </h1>
-      <h1 class="font-display text-6xl md:text-8xl lg:text-9xl text-gold-500 leading-[0.9] tracking-tight italic mb-6">
-        Maison
-      </h1>
-    </div>
+    <!-- Decorative circles / halos -->
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-175 h-175 rounded-full border border-gold-700/10"></div>
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full border border-gold-600/10"></div>
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] rounded-full border border-gold-500/15"></div>
 
-    <div class="divider-baroque mb-8 opacity-0 animate-fade-in delay-300" class:opacity-100={visible}>
-      <span class="text-gold-600 text-base">⸻ ✦ ⸻</span>
-    </div>
+    <!-- Baroque pattern overlay -->
+    <div class="absolute inset-0 bg-baroque-pattern opacity-30"></div>
 
-    <div class="opacity-0 animate-slide-up delay-400" class:opacity-100={visible}>
-      <p class="font-body text-ivory-500 text-xl md:text-2xl italic leading-relaxed mb-10 max-w-2xl mx-auto">
-        Di mana setiap kamar adalah sebuah mahakarya,<br/>
-        dan setiap momen menjadi kenangan abadi.
-      </p>
-    </div>
+    <!-- Corner ornaments -->
+    <div class="absolute top-8 left-8 text-gold-600/30 text-5xl select-none leading-none font-display">❦</div>
+    <div class="absolute top-8 right-8 text-gold-600/30 text-5xl select-none leading-none font-display" style="transform: scaleX(-1)">❦</div>
+    <div class="absolute bottom-8 left-8 text-gold-600/30 text-5xl select-none leading-none font-display" style="transform: scaleY(-1)">❦</div>
+    <div class="absolute bottom-8 right-8 text-gold-600/30 text-5xl select-none leading-none font-display" style="transform: scale(-1)">❦</div>
 
-    <div class="flex flex-col sm:flex-row gap-4 justify-center opacity-0 animate-fade-in delay-500" class:opacity-100={visible}>
-      <a href="/booking" class="btn-primary">
-        Reservasi Sekarang
-      </a>
-      <a href="/kamar" class="btn-outline">
-        Jelajahi Kamar
-      </a>
-    </div>
-  </div>
-
-  <!-- Scroll indicator -->
-  <div class="absolute bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-gold-600/50 animate-shimmer">
-    <span class="text-xs tracking-widest uppercase font-body">Gulir</span>
-    <div class="w-px h-12 bg-gradient-to-b from-gold-600/50 to-transparent"></div>
-  </div>
-</section>
-
-<!-- ═══════════════════════ QUICK BOOKING WIDGET ═══════════════════════ -->
-<section class="relative -mt-1 py-0">
-  <div class="max-w-5xl mx-auto px-6">
-    <div class="bg-velvet-800 border border-gold-700/40 shadow-baroque relative overflow-hidden">
-      <!-- Top accent -->
-      <div class="h-0.5 bg-gradient-to-r from-transparent via-gold-500 to-transparent"></div>
+    <!-- Content -->
+    <div class="relative z-10 text-center px-6 max-w-4xl mx-auto">
+      <div class="opacity-0 animate-fade-in" class:opacity-100={visible}>
+        <p class="text-gold-500 text-xs tracking-[0.5em] uppercase mb-6 font-body">
+          ✦ &nbsp; Selamat Datang di &nbsp; ✦
+        </p>
+      </div>
       
-      <!-- Corner fleur -->
-      <span class="absolute top-3 left-4 text-gold-600/30 text-xl">❧</span>
-      <span class="absolute top-3 right-4 text-gold-600/30 text-xl" style="transform: scaleX(-1)">❧</span>
-
-      <div class="p-8">
-        <h2 class="text-center font-display text-2xl text-gold-400 mb-1">Reservasi Cepat</h2>
-        <p class="text-center text-xs tracking-widest text-ivory-700 uppercase mb-6">— Pesan dalam hitungan menit —</p>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div>
-            <label for="quick-checkin" class="text-xs tracking-widest uppercase text-gold-600 font-body block mb-2">Check-in</label>
-            <input id="quick-checkin" type="date" bind:value={checkIn} class="input-baroque" />
-          </div>
-          <div>
-            <label for="quick-checkout" class="text-xs tracking-widest uppercase text-gold-600 font-body block mb-2">Check-out</label>
-            <input id="quick-checkout" type="date" bind:value={checkOut} class="input-baroque" />
-          </div>
-          <div>
-            <label for="quick-guests" class="text-xs tracking-widest uppercase text-gold-600 font-body block mb-2">Tamu</label>
-            <select id="quick-guests" bind:value={guests} class="input-baroque cursor-pointer">
-              <option value="1">1 Tamu</option>
-              <option value="2">2 Tamu</option>
-              <option value="3">3 Tamu</option>
-              <option value="4">4 Tamu</option>
-            </select>
-          </div>
-          <div>
-            <label for="quick-roomtype" class="text-xs tracking-widest uppercase text-gold-600 font-body block mb-2">Tipe Kamar</label>
-            <select id="quick-roomtype" bind:value={roomType} class="input-baroque cursor-pointer">
-              <option value="">Semua Tipe</option>
-              <option value="superior">Superior Klasik</option>
-              <option value="deluxe">Deluxe Victoria</option>
-              <option value="suite">Suite Baroque</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="text-center">
-          <button on:click={handleQuickBook} class="btn-primary px-12">
-            Cari Ketersediaan
-          </button>
-        </div>
+      <div class="opacity-0 animate-slide-up delay-200" class:opacity-100={visible}>
+        <h1 class="font-display text-6xl md:text-8xl lg:text-9xl text-ivory-100 leading-[0.9] tracking-tight mb-2">
+          Grand
+        </h1>
+        <h1 class="font-display text-6xl md:text-8xl lg:text-9xl text-gold-500 leading-[0.9] tracking-tight italic mb-6">
+          Maison
+        </h1>
       </div>
-    </div>
-  </div>
-</section>
 
-<!-- ═══════════════════════ INTRO / ABOUT ═══════════════════════ -->
-<section class="py-28 px-6">
-  <div class="max-w-4xl mx-auto text-center">
-    <p class="text-gold-500 text-xs tracking-[0.4em] uppercase font-body mb-4">✦ Warisan Kemewahan</p>
-    <h2 class="section-title mb-6">
-      Sejak 1887, Kami Menjaga<br/>
-      <em class="text-gold-400 not-italic font-display">Tradisi Kemewahan</em>
-    </h2>
-    <div class="divider-baroque mb-8">
-      <span class="text-gold-600">⸻ ❦ ⸻</span>
-    </div>
-    <p class="section-subtitle max-w-2xl mx-auto italic">
-      "Grand Maison berdiri sebagai monumen keindahan arsitektur Victoria dan Baroque yang telah menjadi 
-      saksi bisu ribuan kisah cinta, perayaan, dan pertemuan bersejarah selama lebih dari satu abad."
-    </p>
-    <div class="grid grid-cols-3 gap-8 mt-16 max-w-2xl mx-auto">
-      {#each [['137', 'Tahun Warisan'], ['48', 'Kamar & Suite'], ['15', 'Penghargaan']] as [num, label]}
-        <div class="text-center">
-          <div class="font-display text-5xl text-gold-500 leading-none mb-1">{num}</div>
-          <div class="text-xs tracking-widest text-ivory-700 uppercase font-body">{label}</div>
-        </div>
-      {/each}
-    </div>
-  </div>
-</section>
+      <div class="divider-baroque mb-8 opacity-0 animate-fade-in delay-300" class:opacity-100={visible}>
+        <span class="text-gold-600 text-base">⸻ ✦ ⸻</span>
+      </div>
 
-<!-- ═══════════════════════ ROOMS ═══════════════════════ -->
-<section class="py-20 px-6 bg-velvet-800/40">
-  <div class="max-w-7xl mx-auto">
-    <div class="text-center mb-16">
-      <p class="text-gold-500 text-xs tracking-[0.4em] uppercase font-body mb-4">✦ Akomodasi Kami</p>
-      <h2 class="section-title">Kamar & <em class="text-gold-400 font-display not-italic">Suite</em></h2>
-      <div class="divider-baroque mt-4">
-        <span class="text-gold-600">⸻ ✦ ⸻</span>
+      <div class="opacity-0 animate-slide-up delay-400" class:opacity-100={visible}>
+        <p class="font-body text-ivory-500 text-xl md:text-2xl italic leading-relaxed mb-10 max-w-2xl mx-auto">
+          Di mana setiap kamar adalah sebuah mahakarya,<br/>
+          dan setiap momen menjadi kenangan abadi.
+        </p>
+      </div>
+
+      <div class="flex flex-col sm:flex-row gap-4 justify-center opacity-0 animate-fade-in delay-500" class:opacity-100={visible}>
+        <a href="/booking" class="btn-primary">
+          Reservasi Sekarang
+        </a>
+        <a href="/kamar" class="btn-outline">
+          Jelajahi Kamar
+        </a>
       </div>
     </div>
 
+    <!-- Scroll indicator -->
+    <div class="absolute bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-gold-600/50 animate-shimmer">
+      <span class="text-xs tracking-widest uppercase font-body">Gulir</span>
+      <div class="w-px h-12 bg-gradient-to-b from-gold-600/50 to-transparent"></div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ QUICK BOOKING WIDGET ═══════════════════════ -->
+  <section class="relative -mt-1 py-0">
+    <div class="max-w-5xl mx-auto px-6">
+      <div class="bg-velvet-800 border border-gold-700/40 shadow-baroque relative overflow-hidden">
+        <!-- Top accent -->
+        <div class="h-0.5 bg-gradient-to-r from-transparent via-gold-500 to-transparent"></div>
+        
+        <!-- Corner fleur -->
+        <span class="absolute top-3 left-4 text-gold-600/30 text-xl">❧</span>
+        <span class="absolute top-3 right-4 text-gold-600/30 text-xl" style="transform: scaleX(-1)">❧</span>
+
+        <div class="p-8">
+          <h2 class="text-center font-display text-2xl text-gold-400 mb-1">Reservasi Cepat</h2>
+          <p class="text-center text-xs tracking-widest text-ivory-700 uppercase mb-6">— Pesan dalam hitungan menit —</p>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div>
+              <label for="quick-checkin" class="text-xs tracking-widest uppercase text-gold-600 font-body block mb-2">Check-in</label>
+              <input id="quick-checkin" type="date" bind:value={checkIn} class="input-baroque" />
+            </div>
+            <div>
+              <label for="quick-checkout" class="text-xs tracking-widest uppercase text-gold-600 font-body block mb-2">Check-out</label>
+              <input id="quick-checkout" type="date" bind:value={checkOut} class="input-baroque" />
+            </div>
+            <div>
+              <label for="quick-guests" class="text-xs tracking-widest uppercase text-gold-600 font-body block mb-2">Tamu</label>
+              <select id="quick-guests" bind:value={guests} class="input-baroque cursor-pointer">
+                <option value="1">1 Tamu</option>
+                <option value="2">2 Tamu</option>
+                <option value="3">3 Tamu</option>
+                <option value="4">4 Tamu</option>
+              </select>
+            </div>
+            <div>
+              <label for="quick-roomtype" class="text-xs tracking-widest uppercase text-gold-600 font-body block mb-2">Tipe Kamar</label>
+              <select id="quick-roomtype" bind:value={roomType} class="input-baroque cursor-pointer">
+                <option value="">Semua Tipe</option>
+                <option value="superior">Superior Klasik</option>
+                <option value="deluxe">Deluxe Victoria</option>
+                <option value="suite">Suite Baroque</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="text-center">
+            <button onclick={handleQuickBook} class="btn-primary px-12 cursor-pointer">
+              Cari Ketersediaan
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ INTRO / ABOUT ═══════════════════════ -->
+  <section class="py-28 px-6">
+    <div class="max-w-4xl mx-auto text-center">
+      <p class="text-gold-500 text-xs tracking-[0.4em] uppercase font-body mb-4">✦ Warisan Kemewahan</p>
+      <h2 class="section-title mb-6">
+        Sejak 1887, Kami Menjaga<br/>
+        <em class="text-gold-400 not-italic font-display">Tradisi Kemewahan</em>
+      </h2>
+      <div class="divider-baroque mb-8">
+        <span class="text-gold-600">⸻ ❦ ⸻</span>
+      </div>
+      <p class="section-subtitle max-w-2xl mx-auto italic">
+        "Grand Maison berdiri sebagai monumen keindahan arsitektur Victoria dan Baroque yang telah menjadi 
+        saksi bisu ribuan kisah cinta, perayaan, dan pertemuan bersejarah selama lebih dari satu abad."
+      </p>
+      <div class="grid grid-cols-3 gap-8 mt-16 max-w-2xl mx-auto">
+        {#each [['137', 'Tahun Warisan'], ['48', 'Kamar & Suite'], ['15', 'Penghargaan']] as [num, label]}
+          <div class="text-center">
+            <div class="font-display text-5xl text-gold-500 leading-none mb-1">{num}</div>
+            <div class="text-xs tracking-widest text-ivory-700 uppercase font-body">{label}</div>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ AMENITIES ═══════════════════════ -->
+  <section class="py-28 px-6">
+    <div class="max-w-7xl mx-auto">
+      <div class="text-center mb-16">
+        <p class="text-gold-500 text-xs tracking-[0.4em] uppercase font-body mb-4">✦ Fasilitas Eksklusif</p>
+        <h2 class="section-title">Pengalaman yang <em class="text-gold-400 font-display not-italic">Tak Tertandingi</em></h2>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {#each amenities as item}
+          <div class="group p-6 border border-gold-700/20 hover:border-gold-500/50 transition-all duration-300 hover:bg-velvet-800/50 relative overflow-hidden">
+            <!-- Decorative corner -->
+            <span class="absolute top-3 right-3 text-gold-700/20 text-lg group-hover:text-gold-600/40 transition-colors">✦</span>
+            
+            <div class="text-gold-500 text-2xl mb-4 group-hover:scale-110 transition-transform">{item.icon}</div>
+            <h3 class="font-serif text-lg text-ivory-100 mb-2">{item.title}</h3>
+            <p class="text-sm text-ivory-600 font-body leading-relaxed">{item.desc}</p>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ TESTIMONIALS ═══════════════════════ -->
+  <section class="py-24 px-6 bg-velvet-800/30 relative overflow-hidden">
+    <!-- Background ornament -->
+    <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+      <span class="text-gold-900/10 font-display opacity-20" style="font-size: 30rem; line-height: 1; select-none">❦</span>
+    </div>
+
+    <div class="relative max-w-7xl mx-auto">
+      <div class="text-center mb-16">
+        <p class="text-gold-500 text-xs tracking-[0.4em] uppercase font-body mb-4">✦ Kata Mereka</p>
+        <h2 class="section-title">Pengalaman <em class="text-gold-400 font-display not-italic">Para Tamu</em></h2>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {#each testimonials as t}
+          <blockquote class="relative p-8 border border-gold-700/25 bg-velvet-800/50">
+            <span class="absolute top-4 left-6 text-gold-600/30 font-display text-6xl leading-none">"</span>
+            <p class="font-body text-ivory-500 leading-relaxed italic relative z-10 mt-4 mb-6">{t.text}</p>
+            <div class="divider-baroque mb-5">
+              <span class="text-gold-700 text-xs">⸻</span>
+            </div>
+            <footer>
+              <div class="font-serif text-ivory-200">{t.name}</div>
+              <div class="text-xs tracking-widest text-gold-600 uppercase font-body">{t.title}</div>
+            </footer>
+          </blockquote>
+        {/each}
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ CTA ═══════════════════════ -->
+  <section class="py-28 px-6 text-center relative overflow-hidden">
+    <div class="absolute inset-0 bg-gradient-to-r from-velvet-900 via-velvet-800 to-velvet-900"></div>
+    <div class="absolute inset-0 bg-baroque-pattern opacity-20"></div>
     
-    <div class="text-center mt-10">
-      <a href="/kamar" class="btn-outline">Lihat Semua Kamar</a>
+    <!-- Horizontal lines -->
+    <div class="absolute top-1/2 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gold-700/30 to-transparent -translate-y-16"></div>
+    <div class="absolute top-1/2 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gold-700/30 to-transparent translate-y-16"></div>
+
+    <div class="relative max-w-2xl mx-auto">
+      <p class="text-gold-500 text-xs tracking-[0.5em] uppercase font-body mb-4">✦ Mulai Perjalanan Anda ✦</p>
+      <h2 class="font-display text-5xl md:text-6xl text-ivory-100 mb-4 leading-tight">
+        Reservasi Kamar<br/>
+        <em class="text-gold-400 italic">Impian Anda</em>
+      </h2>
+      <p class="font-body text-ivory-600 mb-10 text-lg">
+        Hubungi tim concierge kami atau pesan langsung secara online.<br/>
+        Kami siap mewujudkan pengalaman menginap yang sempurna.
+      </p>
+      <div class="flex flex-col sm:flex-row gap-4 justify-center">
+        <a href="/booking" class="btn-primary">Pesan Sekarang</a>
+        <a href="tel:+62211234567" class="btn-outline">Hubungi Kami</a>
+      </div>
     </div>
-  </div>
-</section>
-
-<!-- ═══════════════════════ AMENITIES ═══════════════════════ -->
-<section class="py-28 px-6">
-  <div class="max-w-7xl mx-auto">
-    <div class="text-center mb-16">
-      <p class="text-gold-500 text-xs tracking-[0.4em] uppercase font-body mb-4">✦ Fasilitas Eksklusif</p>
-      <h2 class="section-title">Pengalaman yang <em class="text-gold-400 font-display not-italic">Tak Tertandingi</em></h2>
-    </div>
-
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-      {#each amenities as item}
-        <div class="group p-6 border border-gold-700/20 hover:border-gold-500/50 transition-all duration-300 hover:bg-velvet-800/50 relative overflow-hidden">
-          <!-- Decorative corner -->
-          <span class="absolute top-3 right-3 text-gold-700/20 text-lg group-hover:text-gold-600/40 transition-colors">✦</span>
-          
-          <div class="text-gold-500 text-2xl mb-4 group-hover:scale-110 transition-transform">{item.icon}</div>
-          <h3 class="font-serif text-lg text-ivory-100 mb-2">{item.title}</h3>
-          <p class="text-sm text-ivory-600 font-body leading-relaxed">{item.desc}</p>
-        </div>
-      {/each}
-    </div>
-  </div>
-</section>
-
-<!-- ═══════════════════════ TESTIMONIALS ═══════════════════════ -->
-<section class="py-24 px-6 bg-velvet-800/30 relative overflow-hidden">
-  <!-- Background ornament -->
-  <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
-    <span class="text-gold-900/10 font-display opacity-20" style="font-size: 30rem; line-height: 1; select-none">❦</span>
-  </div>
-
-  <div class="relative max-w-7xl mx-auto">
-    <div class="text-center mb-16">
-      <p class="text-gold-500 text-xs tracking-[0.4em] uppercase font-body mb-4">✦ Kata Mereka</p>
-      <h2 class="section-title">Pengalaman <em class="text-gold-400 font-display not-italic">Para Tamu</em></h2>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-      {#each testimonials as t}
-        <blockquote class="relative p-8 border border-gold-700/25 bg-velvet-800/50">
-          <span class="absolute top-4 left-6 text-gold-600/30 font-display text-6xl leading-none">"</span>
-          <p class="font-body text-ivory-500 leading-relaxed italic relative z-10 mt-4 mb-6">{t.text}</p>
-          <div class="divider-baroque mb-5">
-            <span class="text-gold-700 text-xs">⸻</span>
-          </div>
-          <footer>
-            <div class="font-serif text-ivory-200">{t.name}</div>
-            <div class="text-xs tracking-widest text-gold-600 uppercase font-body">{t.title}</div>
-          </footer>
-        </blockquote>
-      {/each}
-    </div>
-  </div>
-</section>
-
-<!-- ═══════════════════════ CTA ═══════════════════════ -->
-<section class="py-28 px-6 text-center relative overflow-hidden">
-  <div class="absolute inset-0 bg-gradient-to-r from-velvet-900 via-velvet-800 to-velvet-900"></div>
-  <div class="absolute inset-0 bg-baroque-pattern opacity-20"></div>
-  
-  <!-- Horizontal lines -->
-  <div class="absolute top-1/2 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gold-700/30 to-transparent -translate-y-16"></div>
-  <div class="absolute top-1/2 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gold-700/30 to-transparent translate-y-16"></div>
-
-  <div class="relative max-w-2xl mx-auto">
-    <p class="text-gold-500 text-xs tracking-[0.5em] uppercase font-body mb-4">✦ Mulai Perjalanan Anda ✦</p>
-    <h2 class="font-display text-5xl md:text-6xl text-ivory-100 mb-4 leading-tight">
-      Reservasi Kamar<br/>
-      <em class="text-gold-400 italic">Impian Anda</em>
-    </h2>
-    <p class="font-body text-ivory-600 mb-10 text-lg">
-      Hubungi tim concierge kami atau pesan langsung secara online.<br/>
-      Kami siap mewujudkan pengalaman menginap yang sempurna.
-    </p>
-    <div class="flex flex-col sm:flex-row gap-4 justify-center">
-      <a href="/booking" class="btn-primary">Pesan Sekarang</a>
-      <a href="tel:+62211234567" class="btn-outline">Hubungi Kami</a>
-    </div>
-  </div>
-</section>
+  </section>
+{/if}

@@ -1,0 +1,227 @@
+import { randomBytes } from 'node:crypto';
+import { j as json } from './index-lhTMmBNn.js';
+import { g as getAuthenticatedUser } from './auth-CKVeimI7.js';
+import { q as query, w as withTransaction } from './db-CaMA-jZS.js';
+import { n as normalizeRoomLookup, p as parseIsoDate, a as toInteger, t as toNonEmptyString, i as isValidEmail, d as differenceInDays } from './validation-BP4I7G9F.js';
+import 'bcryptjs';
+import 'jsonwebtoken';
+import './shared-server-cF6ckHns.js';
+import 'pg';
+
+class ApiError extends Error {
+  /**
+   * @param {number} status
+   * @param {string} message
+   */
+  constructor(status, message) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+const TAX_RATE = 0.11;
+const VALID_PAYMENT_METHODS = /* @__PURE__ */ new Set(["transfer", "card", "cash"]);
+async function GET({ cookies, url }) {
+  const authUser = getAuthenticatedUser(cookies);
+  if (authUser?.role !== "admin") {
+    return json({ error: "Unauthorized." }, { status: 401 });
+  }
+  try {
+    const search = url.searchParams.get("search") || "";
+    const status = url.searchParams.get("status") || "";
+    let sql = `
+			SELECT 
+				b.*,
+				r.name as room_name,
+				r.code as room_code
+			 FROM bookings b
+			 JOIN rooms r ON b.room_id = r.id
+		`;
+    const params = [];
+    const conditions = [];
+    if (search) {
+      params.push(`%${search}%`);
+      conditions.push(`(
+				b.booking_reference ILIKE $${params.length} OR
+				b.first_name ILIKE $${params.length} OR
+				b.last_name ILIKE $${params.length} OR
+				b.email ILIKE $${params.length}
+			)`);
+    }
+    if (status) {
+      params.push(status);
+      conditions.push(`b.status = $${params.length}`);
+    }
+    if (conditions.length > 0) {
+      sql += " WHERE " + conditions.join(" AND ");
+    }
+    sql += " ORDER BY b.created_at DESC";
+    const { rows } = await query(sql, params);
+    return json({ data: rows });
+  } catch (error) {
+    console.error("GET /api/bookings error:", error);
+    return json({ error: "Gagal mengambil data booking." }, { status: 500 });
+  }
+}
+function generateBookingReference() {
+  return `GM-${Date.now().toString(36).toUpperCase()}-${randomBytes(2).toString("hex").toUpperCase()}`;
+}
+async function POST({ request, cookies }) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const authUser = getAuthenticatedUser(cookies);
+    const roomLookup = normalizeRoomLookup(body.roomId ?? body.roomCode ?? body.room_type);
+    const checkIn = parseIsoDate(body.checkIn ?? body.check_in);
+    const checkOut = parseIsoDate(body.checkOut ?? body.check_out);
+    const guests = toInteger(body.guests);
+    const firstName = toNonEmptyString(body.firstName ?? body.first_name);
+    const lastName = toNonEmptyString(body.lastName ?? body.last_name);
+    const email = toNonEmptyString(body.email).toLowerCase();
+    const phone = toNonEmptyString(body.phone);
+    const nationality = toNonEmptyString(body.nationality).toUpperCase();
+    const specialRequest = toNonEmptyString(body.specialRequest ?? body.special_request);
+    const paymentMethod = toNonEmptyString(body.paymentMethod ?? body.payment_method).toLowerCase();
+    if (!roomLookup || !checkIn || !checkOut || !Number.isInteger(guests)) {
+      return json(
+        { error: "Field wajib: roomId/roomCode, checkIn, checkOut, guests." },
+        { status: 400 }
+      );
+    }
+    if (!firstName || !lastName || !email) {
+      return json({ error: "Field wajib: firstName, lastName, email." }, { status: 400 });
+    }
+    if (!isValidEmail(email)) {
+      return json({ error: "Format email tidak valid." }, { status: 400 });
+    }
+    if (guests < 1 || guests > 10) {
+      return json({ error: "Jumlah tamu tidak valid." }, { status: 400 });
+    }
+    const nights = differenceInDays(checkIn, checkOut);
+    if (nights < 1) {
+      return json({ error: "Tanggal check-out harus setelah check-in." }, { status: 400 });
+    }
+    if (!VALID_PAYMENT_METHODS.has(paymentMethod)) {
+      return json(
+        { error: "paymentMethod harus salah satu dari: transfer, card, cash." },
+        { status: 400 }
+      );
+    }
+    const payload = await withTransaction(async (client) => {
+      const roomWhereClause = roomLookup.kind === "id" ? "id = $1" : "LOWER(code) = $1";
+      const roomResult = await client.query(
+        `SELECT id, code, name, price_per_night, max_guests, is_available
+				 FROM rooms
+				 WHERE ${roomWhereClause}
+				 LIMIT 1`,
+        [roomLookup.value]
+      );
+      const room = roomResult.rows[0];
+      if (!room) {
+        throw new ApiError(404, "Kamar tidak ditemukan.");
+      }
+      if (!room.is_available) {
+        throw new ApiError(409, "Kamar sedang tidak tersedia.");
+      }
+      if (guests > room.max_guests) {
+        throw new ApiError(
+          400,
+          `Jumlah tamu melebihi kapasitas kamar. Maksimum: ${room.max_guests}.`
+        );
+      }
+      const subtotal = room.price_per_night * nights;
+      const tax = Math.round(subtotal * TAX_RATE);
+      const grandTotal = subtotal + tax;
+      const bookingReference = generateBookingReference();
+      const insertResult = await client.query(
+        `INSERT INTO bookings (
+					booking_reference,
+					user_id,
+					room_id,
+					check_in,
+					check_out,
+					guests,
+					first_name,
+					last_name,
+					email,
+					phone,
+					nationality,
+					special_request,
+					payment_method,
+					subtotal,
+					tax_amount,
+					grand_total,
+					status
+				)
+				VALUES (
+					$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending'
+				)
+				RETURNING
+					id,
+					booking_reference,
+					room_id,
+					check_in,
+					check_out,
+					guests,
+					status,
+					subtotal,
+					tax_amount,
+					grand_total,
+					created_at`,
+        [
+          bookingReference,
+          authUser?.id || null,
+          room.id,
+          checkIn.toISOString().slice(0, 10),
+          checkOut.toISOString().slice(0, 10),
+          guests,
+          firstName,
+          lastName,
+          email,
+          phone || null,
+          nationality || null,
+          specialRequest || null,
+          paymentMethod,
+          subtotal,
+          tax,
+          grandTotal
+        ]
+      );
+      return {
+        booking: insertResult.rows[0],
+        room: {
+          id: room.id,
+          code: room.code,
+          name: room.name,
+          price_per_night: room.price_per_night
+        }
+      };
+    });
+    return json(
+      {
+        message: "Booking berhasil dibuat.",
+        data: payload
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return json({ error: error.message }, { status: error.status });
+    }
+    if (error && typeof error === "object" && "code" in error) {
+      if (error.code === "23P01") {
+        return json(
+          { error: "Kamar sudah dipesan pada rentang tanggal tersebut." },
+          { status: 409 }
+        );
+      }
+      if (error.code === "23514") {
+        return json({ error: "Data booking tidak valid." }, { status: 400 });
+      }
+    }
+    console.error("POST /api/bookings error:", error);
+    return json({ error: "Gagal membuat booking." }, { status: 500 });
+  }
+}
+
+export { GET, POST };
+//# sourceMappingURL=_server-mAy8qIVu.js.map

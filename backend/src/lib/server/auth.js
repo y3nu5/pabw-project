@@ -67,11 +67,14 @@ export function verifyAccessToken(token) {
  * @param {string} token
  */
 export function setAuthCookie(cookies, token) {
+	const isProd = env.NODE_ENV === 'production';
 	cookies.set(AUTH_COOKIE_NAME, token, {
 		path: '/',
 		httpOnly: true,
-		sameSite: 'lax',
-		secure: env.NODE_ENV === 'production',
+		// Di production (cross-domain): sameSite=none + secure=true
+		// Di development (same-domain): sameSite=lax
+		sameSite: isProd ? 'none' : 'lax',
+		secure: isProd,
 		maxAge: Number(env.JWT_COOKIE_MAX_AGE ?? DEFAULT_TOKEN_MAX_AGE)
 	});
 }
@@ -80,11 +83,12 @@ export function setAuthCookie(cookies, token) {
  * @param {import('@sveltejs/kit').Cookies} cookies
  */
 export function clearAuthCookie(cookies) {
+	const isProd = env.NODE_ENV === 'production';
 	cookies.delete(AUTH_COOKIE_NAME, {
 		path: '/',
 		httpOnly: true,
-		sameSite: 'lax',
-		secure: env.NODE_ENV === 'production'
+		sameSite: isProd ? 'none' : 'lax',
+		secure: isProd
 	});
 }
 

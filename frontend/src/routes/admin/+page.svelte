@@ -2,19 +2,60 @@
   import AdminAIConsole from '$lib/components/AdminAIConsole.svelte';
   let { data } = $props();
 
-  const stats = [
-    { name: 'Total Reservasi', value: '128', change: '+12%', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
-    { name: 'Pendapatan (Bulan Ini)', value: 'Rp 42.5M', change: '+8.4%', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
-    { name: 'Kamar Terisi', value: '18/48', change: '75% Okupansi', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
-    { name: 'Tamu Aktif', value: '34', change: '+2 hari ini', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 005.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
-  ];
+  /**
+   * @param {number} amount
+   */
+  function formatCurrency(amount) {
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
+  }
 
-  const recentBookings = [
-    { ref: 'GM-X8K9-AF', guest: 'Siti Rahayu', room: 'Suite Baroque', checkIn: '2024-05-01', status: 'Confirmed', total: 'Rp 4.500.000' },
-    { ref: 'GM-P2W1-BC', guest: 'Budi Santoso', room: 'Superior Klasik', checkIn: '2024-05-02', status: 'Pending', total: 'Rp 1.200.000' },
-    { ref: 'GM-L5M4-DE', guest: 'Anita Wijaya', room: 'Deluxe Victoria', checkIn: '2024-05-05', status: 'Checked In', total: 'Rp 2.800.000' },
-    { ref: 'GM-Q1R0-FG', guest: 'Reza Artamevia', room: 'Suite Baroque', checkIn: '2024-05-10', status: 'Confirmed', total: 'Rp 5.200.000' },
-  ];
+  // Fallback if data fails to load
+  const dbStats = $derived(data.statsData?.stats || {
+    totalBookings: 0,
+    monthlyRevenue: 0,
+    occupiedRooms: 0,
+    totalRooms: 0,
+    availableRooms: 0,
+    activeGuests: 0
+  });
+
+  const occupancyPercentage = $derived(
+    dbStats.totalRooms > 0 ? Math.round((dbStats.occupiedRooms / dbStats.totalRooms) * 100) : 0
+  );
+
+  const stats = $derived([
+    { 
+      name: 'Total Reservasi', 
+      value: String(dbStats.totalBookings), 
+      change: 'Total', 
+      icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' 
+    },
+    { 
+      name: 'Pendapatan (Bulan Ini)', 
+      value: formatCurrency(dbStats.monthlyRevenue), 
+      change: 'Bulan ini', 
+      icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' 
+    },
+    { 
+      name: 'Kamar Terisi', 
+      value: `${dbStats.occupiedRooms}/${dbStats.totalRooms}`, 
+      change: `${occupancyPercentage}% Okupansi`, 
+      icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' 
+    },
+    { 
+      name: 'Tamu Aktif', 
+      value: String(dbStats.activeGuests), 
+      change: 'Akumulasi', 
+      icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 005.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' 
+    },
+  ]);
+
+  const recentBookings = $derived(data.statsData?.recentBookings || []);
+  const roomStatsBreakdown = $derived(data.statsData?.roomStats || { available: 0, occupied: 0, maintenance: 0 });
+  const totalRoomsForBar = $derived((roomStatsBreakdown.available + roomStatsBreakdown.occupied + roomStatsBreakdown.maintenance) || 1);
+  const availablePercentage = $derived(Math.round((roomStatsBreakdown.available / totalRoomsForBar) * 100));
+  const occupiedPercentage = $derived(Math.round((roomStatsBreakdown.occupied / totalRoomsForBar) * 100));
+  const maintenancePercentage = $derived(Math.round((roomStatsBreakdown.maintenance / totalRoomsForBar) * 100));
 </script>
 
 <div class="space-y-8 animate-fade-in">
@@ -65,19 +106,27 @@
           <tbody class="text-sm">
             {#each recentBookings as booking}
               <tr class="border-b border-[#9a6f08]/10 hover:bg-[#1a0a0f]/50 transition-colors">
-                <td class="px-6 py-4 font-serif text-[#d4a017]">{booking.ref}</td>
-                <td class="px-6 py-4 text-[#faf5e8]/80">{booking.guest}</td>
-                <td class="px-6 py-4 text-[#faf5e8]/80">{booking.room}</td>
-                <td class="px-6 py-4 text-[#faf5e8]/60">{booking.checkIn}</td>
+                <td class="px-6 py-4 font-serif text-[#d4a017]">{booking.booking_reference}</td>
+                <td class="px-6 py-4 text-[#faf5e8]/80">{booking.first_name} {booking.last_name}</td>
+                <td class="px-6 py-4 text-[#faf5e8]/80">{booking.room_name}</td>
+                <td class="px-6 py-4 text-[#faf5e8]/60">{booking.check_in}</td>
                 <td class="px-6 py-4">
                   <span class="px-2 py-0.5 rounded-full text-[10px] uppercase tracking-tighter
-                    {booking.status === 'Confirmed' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 
-                     booking.status === 'Pending' ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20' : 
-                     'bg-blue-500/10 text-blue-400 border border-blue-500/20'}">
-                    {booking.status}
+                    {booking.status === 'confirmed' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 
+                     booking.status === 'pending' ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20' : 
+                     booking.status === 'checked_in' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                     booking.status === 'checked_out' ? 'bg-gray-500/10 text-gray-400 border border-gray-500/20' :
+                     'bg-red-500/10 text-red-400 border border-red-500/20'}">
+                    {booking.status.replace('_', ' ')}
                   </span>
                 </td>
-                <td class="px-6 py-4 font-serif text-[#faf5e8]">{booking.total}</td>
+                <td class="px-6 py-4 font-serif text-[#faf5e8]">{formatCurrency(booking.grand_total)}</td>
+              </tr>
+            {:else}
+              <tr>
+                <td colspan="6" class="px-6 py-12 text-center text-[#faf5e8]/30 italic font-serif">
+                  Belum ada data reservasi terbaru.
+                </td>
               </tr>
             {/each}
           </tbody>
@@ -94,21 +143,24 @@
         <div class="space-y-4">
           <div class="flex items-center justify-between text-sm">
             <span class="text-[#faf5e8]/60">Tersedia</span>
-            <span class="text-[#d4a017] font-serif">30</span>
+            <span class="text-[#d4a017] font-serif">{roomStatsBreakdown.available}</span>
           </div>
           <div class="w-full h-1 bg-[#1a0a0f] rounded-full overflow-hidden">
-            <div class="h-full bg-green-500" style="width: 62%"></div>
+            <div class="h-full bg-green-500" style="width: {availablePercentage}%"></div>
           </div>
           <div class="flex items-center justify-between text-sm">
             <span class="text-[#faf5e8]/60">Terisi</span>
-            <span class="text-[#d4a017] font-serif">18</span>
+            <span class="text-[#d4a017] font-serif">{roomStatsBreakdown.occupied}</span>
           </div>
           <div class="w-full h-1 bg-[#1a0a0f] rounded-full overflow-hidden">
-            <div class="h-full bg-red-500" style="width: 38%"></div>
+            <div class="h-full bg-red-500" style="width: {occupiedPercentage}%"></div>
           </div>
           <div class="flex items-center justify-between text-sm pt-2">
             <span class="text-[#faf5e8]/60">Maintenance</span>
-            <span class="text-[#d4a017] font-serif">0</span>
+            <span class="text-[#d4a017] font-serif">{roomStatsBreakdown.maintenance}</span>
+          </div>
+          <div class="w-full h-1 bg-[#1a0a0f] rounded-full overflow-hidden">
+            <div class="h-full bg-yellow-600" style="width: {maintenancePercentage}%"></div>
           </div>
         </div>
       </div>

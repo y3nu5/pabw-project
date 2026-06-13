@@ -16,23 +16,50 @@ const TAX_RATE = 0.11;
 const VALID_PAYMENT_METHODS = new Set(['transfer', 'card', 'cash']);
 
 /** @type {import('./$types').RequestHandler} */
-export async function GET({ cookies }) {
+export async function GET({ cookies, url }) {
 	const authUser = getAuthenticatedUser(cookies);
 	if (authUser?.role !== 'admin') {
 		return json({ error: 'Unauthorized.' }, { status: 401 });
 	}
 
 	try {
-		const { rows } = await query(
-			`SELECT 
+		const search = url.searchParams.get('search') || '';
+		const status = url.searchParams.get('status') || '';
+
+		let sql = `
+			SELECT 
 				b.*,
 				r.name as room_name,
 				r.code as room_code
 			 FROM bookings b
 			 JOIN rooms r ON b.room_id = r.id
-			 ORDER BY b.created_at DESC`
-		);
+		`;
 
+		const params = [];
+		const conditions = [];
+
+		if (search) {
+			params.push(`%${search}%`);
+			conditions.push(`(
+				b.booking_reference ILIKE $${params.length} OR
+				b.first_name ILIKE $${params.length} OR
+				b.last_name ILIKE $${params.length} OR
+				b.email ILIKE $${params.length}
+			)`);
+		}
+
+		if (status) {
+			params.push(status);
+			conditions.push(`b.status = $${params.length}`);
+		}
+
+		if (conditions.length > 0) {
+			sql += ' WHERE ' + conditions.join(' AND ');
+		}
+
+		sql += ' ORDER BY b.created_at DESC';
+
+		const { rows } = await query(sql, params);
 		return json({ data: rows });
 	} catch (error) {
 		console.error('GET /api/bookings error:', error);
@@ -94,7 +121,7 @@ export async function POST({ request, cookies }) {
 		}
 
 		const payload = await withTransaction(async (client) => {
-			const roomWhereClause = roomLookup.kind === 'id' ? 'id = $1' : 'code = $1';
+			const roomWhereClause = roomLookup.kind === 'id' ? 'id = $1' : 'LOWER(code) = $1';
 			const roomResult = await client.query(
 				`SELECT id, code, name, price_per_night, max_guests, is_available
 				 FROM rooms

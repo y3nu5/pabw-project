@@ -1,6 +1,12 @@
 <script>
-  import { page } from '$app/stores';
-  let mobileOpen = false;
+  import { page } from '$app/state';
+  import { onMount } from 'svelte';
+  import { API_BASE_URL } from '$lib/config/api';
+
+  let mobileOpen = $state(false);
+  /** @type {any} */
+  let user = $state(null);
+  let loadingUser = $state(true);
 
   const navLinks = [
     { href: '/',          label: 'Beranda' },
@@ -9,10 +15,55 @@
     { href: '/galeri',    label: 'Galeri' },
     { href: '/tentang',   label: 'Tentang Kami' },
   ];
+
+  // Tamu login: hanya Beranda & Riwayat Pemesanan (logout terpisah)
+  // Guest tidak login: semua nav links + tombol Masuk & Pesan Sekarang
+  let activeNavLinks = $derived(
+    user && user.role !== 'admin'
+      ? [
+          { href: '/',        label: 'Beranda' },
+          { href: '/riwayat', label: 'Riwayat Pemesanan' },
+        ]
+      : navLinks
+  );
+
+  async function loadUser() {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
+        credentials: 'include'
+      });
+      if (res.ok) {
+        const json = await res.json();
+        user = json.data || null;
+      }
+    } catch (err) {
+      console.error('Failed to load user in header:', err);
+    } finally {
+      loadingUser = false;
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (res.ok) {
+        user = null;
+        window.location.href = '/';
+      }
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+  }
+
+  onMount(() => {
+    loadUser();
+  });
 </script>
 
-<header class="fixed top-0 left-0 right-0 z-50 transition-all duration-500" 
-  class:bg-velvet-900={true}
+<header class="fixed top-0 left-0 right-0 z-50 transition-all duration-500 bg-velvet-900" 
   style="border-bottom: 1px solid rgba(212,160,23,0.2); backdrop-filter: blur(12px);">
   
   <!-- Top decorative strip -->
@@ -30,46 +81,70 @@
       </a>
 
       <!-- Center ornament -->
-      <div class="hidden lg:flex items-center gap-3 text-gold-600 text-xl select-none">
-        <span>⸻</span>
-        <span class="text-gold-500">✦</span>
-        <span>⸻</span>
-      </div>
+      {#if !loadingUser && !user}
+        <div class="hidden lg:flex items-center gap-3 text-gold-600 text-xl select-none">
+          <span>⸻</span>
+          <span class="text-gold-500">✦</span>
+          <span>⸻</span>
+        </div>
+      {/if}
 
       <!-- Nav -->
       <nav class="hidden md:flex items-center gap-8">
-        {#each navLinks as link}
+        {#each activeNavLinks as link}
           <a href={link.href}
             class="font-body text-sm tracking-widest uppercase transition-colors duration-200 relative group"
-            class:text-gold-400={$page.url.pathname === link.href}
-            class:text-ivory-300={$page.url.pathname !== link.href}>
+            class:text-gold-400={page.url.pathname === link.href}
+            class:text-ivory-300={page.url.pathname !== link.href}>
             {link.label}
             <span class="absolute -bottom-1 left-0 h-px bg-gold-500 transition-all duration-300 w-0 group-hover:w-full"
-              class:w-full={$page.url.pathname === link.href}></span>
+              class:w-full={page.url.pathname === link.href}></span>
           </a>
         {/each}
 
-        <!-- Login Button -->
-        <a href="/login"
-          class="font-body text-sm tracking-widest uppercase transition-colors duration-200 relative group flex items-center gap-2"
-          class:text-gold-400={$page.url.pathname === '/login'}
-          class:text-ivory-300={$page.url.pathname !== '/login'}>
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-              d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M18 12H9m0 0l3-3m-3 3l3 3"/>
-          </svg>
-          Masuk
-          <span class="absolute -bottom-1 left-0 h-px bg-gold-500 transition-all duration-300 w-0 group-hover:w-full"
-            class:w-full={$page.url.pathname === '/login'}></span>
-        </a>
+        <!-- Dynamic User Auth Section -->
+        {#if !loadingUser}
+          {#if user}
+            {#if user.role === 'admin'}
+              <a href="/admin"
+                class="font-body text-sm tracking-widest uppercase text-gold-400 hover:text-gold-300 transition-colors relative group">
+                Panel Admin
+              </a>
+            {/if}
 
-        <a href="/booking" class="btn-primary text-xs py-2.5 px-6">
-          Pesan Sekarang
-        </a>
+            <button onclick={handleLogout}
+              class="font-body text-sm tracking-widest uppercase text-ivory-300 hover:text-gold-400 transition-colors cursor-pointer flex items-center gap-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                  d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"/>
+              </svg>
+              Keluar
+            </button>
+          {:else}
+            <!-- Login Button -->
+            <a href="/login"
+              class="font-body text-sm tracking-widest uppercase transition-colors duration-200 relative group flex items-center gap-2"
+              class:text-gold-400={page.url.pathname === '/login'}
+              class:text-ivory-300={page.url.pathname !== '/login'}>
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                  d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M18 12H9m0 0l3-3m-3 3l3 3"/>
+              </svg>
+              Masuk
+              <span class="absolute -bottom-1 left-0 h-px bg-gold-500 transition-all duration-300 w-0 group-hover:w-full"
+                class:w-full={page.url.pathname === '/login'}></span>
+            </a>
+
+            <a href="/booking" class="btn-primary text-xs py-2.5 px-6">
+              Pesan Sekarang
+            </a>
+          {/if}
+        {/if}
       </nav>
 
       <!-- Mobile hamburger -->
-      <button class="md:hidden text-gold-500 p-2" on:click={() => mobileOpen = !mobileOpen}
+      <button class="md:hidden text-gold-500 p-2 cursor-pointer" onclick={() => mobileOpen = !mobileOpen}
         aria-label="Toggle menu">
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           {#if mobileOpen}
@@ -85,27 +160,48 @@
   <!-- Mobile menu -->
   {#if mobileOpen}
     <div class="md:hidden bg-velvet-800 border-t border-gold-700/30 px-6 py-6 flex flex-col gap-4">
-      {#each navLinks as link}
+      {#each activeNavLinks as link}
         <a href={link.href} class="font-body text-sm tracking-widest uppercase text-ivory-300 hover:text-gold-400 transition-colors"
-          on:click={() => mobileOpen = false}>
+          onclick={() => mobileOpen = false}>
           {link.label}
         </a>
       {/each}
 
-      <!-- Login di mobile -->
-      <a href="/login"
-        class="font-body text-sm tracking-widest uppercase text-ivory-300 hover:text-gold-400 transition-colors flex items-center gap-2"
-        on:click={() => mobileOpen = false}>
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-            d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M18 12H9m0 0l3-3m-3 3l3 3"/>
-        </svg>
-        Masuk
-      </a>
+      {#if !loadingUser}
+        {#if user}
+          {#if user.role === 'admin'}
+            <a href="/admin" class="font-body text-sm tracking-widest uppercase text-gold-400 hover:text-gold-300 transition-colors"
+              onclick={() => mobileOpen = false}>
+              Panel Admin
+            </a>
+          {/if}
 
-      <a href="/booking" class="btn-primary mt-2 text-xs" on:click={() => mobileOpen = false}>
-        Pesan Sekarang
-      </a>
+          <button onclick={() => { mobileOpen = false; handleLogout(); }}
+            class="font-body text-sm tracking-widest uppercase text-ivory-300 hover:text-gold-400 transition-colors cursor-pointer text-left flex items-center gap-2"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"/>
+            </svg>
+            Keluar
+          </button>
+        {:else}
+          <!-- Login di mobile -->
+          <a href="/login"
+            class="font-body text-sm tracking-widest uppercase text-ivory-300 hover:text-gold-400 transition-colors flex items-center gap-2"
+            onclick={() => mobileOpen = false}>
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M18 12H9m0 0l3-3m-3 3l3 3"/>
+            </svg>
+            Masuk
+          </a>
+
+          <a href="/booking" class="btn-primary mt-2 text-xs" onclick={() => mobileOpen = false}>
+            Pesan Sekarang
+          </a>
+        {/if}
+      {/if}
     </div>
   {/if}
 

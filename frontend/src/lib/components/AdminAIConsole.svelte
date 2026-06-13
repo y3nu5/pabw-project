@@ -1,7 +1,8 @@
 <script>
   import { onMount } from 'svelte';
+  import { API_BASE_URL } from '$lib/config/api';
 
-  let { onCommand } = $props();
+  let { onCommand = null } = $props();
   let query = $state('');
   let logs = $state([
     { role: 'system', text: 'Admin AI Console v1.0 aktif' },
@@ -9,7 +10,7 @@
     { role: 'system', text: 'Contoh: "Lihat booking pending", "Cari reservasi Siti", "Berapa occupancy rate hari ini?"' }
   ]);
   let isProcessing = $state(false);
-  let logContainer;
+  let logContainer = $state(/** @type {HTMLDivElement | null} */ (null));
   
   // Conversation messages for the API
   let conversationMessages = $state([
@@ -22,6 +23,9 @@
     }
   }
 
+  /**
+   * @param {SubmitEvent} e
+   */
   async function handleSubmit(e) {
     e.preventDefault();
     if (!query.trim() || isProcessing) return;
@@ -38,7 +42,7 @@
       conversationMessages = [...conversationMessages, { role: 'user', content: userMsg }];
 
       // Call backend admin-chat endpoint
-      const response = await fetch('/api/admin-chat', {
+      const response = await fetch(`${API_BASE_URL}/api/admin-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

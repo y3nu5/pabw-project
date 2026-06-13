@@ -1,10 +1,22 @@
 import { env } from '$env/dynamic/private';
 import { json } from '@sveltejs/kit';
 import { query } from '$lib/server/db';
+import { getAuthenticatedUser } from '$lib/server/auth';
 
 const OLLAMA_BASE_URL = (env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/$/, '');
-const OLLAMA_MODEL = env.OLLAMA_MODEL || 'mistral:7b';
-const MAX_AGENT_STEPS = 5;
+const OLLAMA_MODEL = env.OLLAMA_MODEL || 'qwen2.5:3b';
+
+// Deteksi provider
+const IS_GROQ = OLLAMA_BASE_URL.includes('api.groq.com');
+const IS_OPENAI_COMPAT = IS_GROQ || [
+	'api.siliconflow.cn',
+	'openrouter.ai',
+	'api.openai.com',
+	'api.together.xyz'
+].some((host) => OLLAMA_BASE_URL.includes(host));
+
+const IS_OLLAMA_CLOUD = OLLAMA_BASE_URL.includes('ollama.com');
+const MAX_AGENT_STEPS = 6;
 const TAX_RATE = 0.11;
 
 const BASE_SYSTEM_PROMPT = `Anda adalah "Isabelle", Concierge AI eksklusif dari Grand Maison, hotel mewah bergaya Victorian dan Baroque berdiri sejak 1887 di Jakarta.
@@ -30,35 +42,58 @@ Info Penting:
 - Early check-in & late check-out tersedia (surcharge berlaku)
 
 Tugas utama Anda:
-1. Sambut tamu dengan hangat
+1. Sambut tamu dengan hangat dan jawab pertanyaan seputar hotel
 2. Bantu pilih kamar sesuai kebutuhan, jumlah tamu, dan anggaran
 3. Jelaskan fasilitas secara detail jika ditanya
 4. Hitung total harga (harga kamar x jumlah malam + pajak 11%)
-5. Arahkan ke halaman /booking untuk menyelesaikan reservasi
-6. Jawab FAQ seputar hotel
+5. Buat reservasi LANGSUNG jika tamu meminta dan sudah memberikan semua data yang diperlukan
+6. Jika tamu belum login, minta mereka login dulu sebelum booking otomatis
 
-Jika tamu meminta rekomendasi, tanyakan: tujuan kunjungan, jumlah tamu, dan anggaran. Kemudian berikan 1-2 rekomendasi terbaik dengan alasan yang jelas.
+Untuk membuat reservasi otomatis, kumpulkan dari tamu:
+- Pilihan kamar (kode/nama)
+- Tanggal check-in (format YYYY-MM-DD)
+- Tanggal check-out (format YYYY-MM-DD)
+- Jumlah tamu
+- Nama depan & belakang
+- Email
+- Nomor telepon
+- Metode pembayaran (transfer/card/cash)
 
-Selalu akhiri respons dengan pertanyaan atau ajakan yang mendorong tamu melanjutkan percakapan atau menuju halaman booking.`;
+Jika tamu sudah login, gunakan data profil mereka untuk mengisi nama dan email secara otomatis.
+Selalu konfirmasi detail sebelum membuat reservasi.`;
 
 const TOOL_INSTRUCTIONS = `
 Tools yang tersedia:
+
 1) list_rooms(input: { available_only?: boolean })
-   - Mengembalikan daftar kamar.
+   - Mengembalikan daftar kamar dari database
+   - available_only: true untuk hanya kamar tersedia
+
 2) get_room_detail(input: { room_type: string })
-   - Mencari kamar berdasarkan code atau id.
+   - Detail lengkap kamar (deskripsi, fasilitas, harga, ukuran)
+   - room_type: kode kamar atau id
+
 3) calculate_price(input: { room_type: string, nights: number, guests?: number })
-   - Hitung subtotal, pajak 11%, total.
-4) create_booking_link(input: { room_type: string, check_in?: string, check_out?: string, guests?: number })
-   - Mengembalikan link /booking dengan query params.
+   - Hitung subtotal, pajak 11%, dan grand total
+   - nights: jumlah malam (wajib)
+
+4) create_booking(input: { room_code: string, first_name: string, last_name: string, email: string, phone: string, check_in: string, check_out: string, guests: number, payment_method?: string, special_request?: string })
+   - BUAT RESERVASI NYATA di database
+   - check_in & check_out: format YYYY-MM-DD
+   - payment_method: "transfer", "card", atau "cash" (default: transfer)
+   - Gunakan ini HANYA setelah tamu konfirmasi semua detail
+   - Jika tamu sudah login, gunakan data profil mereka
+
+5) create_booking_link(input: { room_type: string, check_in?: string, check_out?: string, guests?: number })
+   - Alternatif: buat link ke halaman booking manual
+   - Gunakan jika tamu lebih suka isi form sendiri
 
 Aturan respons agent:
-- Anda WAJIB hanya output JSON valid TANPA markdown/code block.
-- Gunakan salah satu format:
-  {"action":"tool","tool":"<nama_tool>","input":{...}}
-  {"action":"respond","reply":"<jawaban final untuk user>"}
+- Output HANYA JSON valid TANPA markdown/code block.
+- Format: {"action":"tool","tool":"<nama>","input":{...}} atau {"action":"respond","reply":"<jawaban>","booking_result":{...}}
 - Jika data sudah cukup, balas dengan action=respond.
-- Jika butuh data/perhitungan, panggil tool dulu dengan action=tool.
+- Jika butuh data, panggil tool dulu.
+- Untuk booking sukses, sertakan booking_result dalam action=respond.
 `;
 
 /**
@@ -89,15 +124,6 @@ function formatRupiah(amount) {
 		currency: 'IDR',
 		minimumFractionDigits: 0
 	}).format(amount);
-}
-
-/**
- * @param {unknown} value
- */
-function normalizeLookup(value) {
-	const text = toText(value).toLowerCase();
-	if (!text) return '';
-	return text;
 }
 
 /**
@@ -138,14 +164,11 @@ async function getRoomsFromDatabase() {
  * @param {any[]} rooms
  */
 function buildRoomsSummary(rooms) {
-	if (rooms.length === 0) {
-		return '- Tidak ada data kamar tersedia saat ini.';
-	}
-
+	if (rooms.length === 0) return '- Tidak ada data kamar tersedia saat ini.';
 	return rooms
 		.map(
-			(room) =>
-				`- ${room.name} (code: ${room.code}, id: ${room.id}) | ${formatRupiah(room.price_per_night)}/malam | maks ${room.max_guests} tamu | tersedia: ${room.is_available ? 'ya' : 'tidak'}`
+			(r) =>
+				`- ${r.name} (code: ${r.code}, id: ${r.id}) | ${formatRupiah(r.price_per_night)}/malam | maks ${r.max_guests} tamu | tersedia: ${r.is_available ? 'ya' : 'tidak'}`
 		)
 		.join('\n');
 }
@@ -155,15 +178,13 @@ function buildRoomsSummary(rooms) {
  * @param {string} lookup
  */
 function findRoom(rooms, lookup) {
-	const normalized = normalizeLookup(lookup);
+	const normalized = toText(lookup).toLowerCase();
 	if (!normalized) return null;
-
 	if (/^\d+$/.test(normalized)) {
 		const id = Number(normalized);
-		return rooms.find((room) => Number(room.id) === id) || null;
+		return rooms.find((r) => Number(r.id) === id) || null;
 	}
-
-	return rooms.find((room) => String(room.code).toLowerCase() === normalized) || null;
+	return rooms.find((r) => String(r.code).toLowerCase() === normalized) || null;
 }
 
 /**
@@ -173,71 +194,137 @@ function createBookingLink(rawInput) {
 	/** @type {any} */
 	const input = rawInput && typeof rawInput === 'object' ? rawInput : {};
 	const roomType = toText(input.room_type);
-
-	if (!roomType) {
-		return { error: 'room_type wajib diisi.' };
-	}
+	if (!roomType) return { error: 'room_type wajib diisi.' };
 
 	const params = new URLSearchParams();
 	params.set('roomType', roomType);
-
 	const checkIn = toText(input.check_in);
 	const checkOut = toText(input.check_out);
 	const guests = toNumber(input.guests);
-
 	if (checkIn) params.set('checkIn', checkIn);
 	if (checkOut) params.set('checkOut', checkOut);
 	if (Number.isFinite(guests) && guests > 0) params.set('guests', String(Math.trunc(guests)));
 
-	return {
-		booking_url: `/booking?${params.toString()}`,
-		message: 'Link booking berhasil dibuat.'
-	};
+	return { booking_url: `/booking?${params.toString()}`, message: 'Link booking berhasil dibuat.' };
+}
+
+/**
+ * @param {unknown} rawInput
+ * @param {any[]} rooms
+ * @param {any} [authUser]
+ */
+async function createBookingDirect(rawInput, rooms, authUser) {
+	/** @type {any} */
+	const input = rawInput && typeof rawInput === 'object' ? rawInput : {};
+
+	const room_code = toText(input.room_code).toUpperCase();
+	const first_name = toText(input.first_name);
+	const last_name = toText(input.last_name);
+	const email = toText(input.email);
+	const phone = toText(input.phone);
+	const check_in = toText(input.check_in);
+	const check_out = toText(input.check_out);
+	const guests = Math.trunc(toNumber(input.guests));
+	const payment_method = toText(input.payment_method) || 'transfer';
+	const special_request = toText(input.special_request);
+
+	if (!room_code || !first_name || !last_name || !email || !check_in || !check_out || isNaN(guests)) {
+		return { error: 'Data tidak lengkap. Diperlukan: room_code, first_name, last_name, email, phone, check_in, check_out, guests.' };
+	}
+
+	if (!['transfer', 'card', 'cash'].includes(payment_method)) {
+		return { error: 'payment_method harus: transfer, card, atau cash.' };
+	}
+
+	const room = findRoom(rooms, room_code);
+	if (!room) return { error: `Kamar dengan kode ${room_code} tidak ditemukan.` };
+	if (!room.is_available) return { error: `Kamar ${room.name} sedang tidak tersedia.` };
+
+	const checkInDate = new Date(check_in);
+	const checkOutDate = new Date(check_out);
+	const diffTime = checkOutDate.getTime() - checkInDate.getTime();
+	const nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+	if (nights <= 0) return { error: 'Check-out harus setelah check-in.' };
+	if (guests > room.max_guests) return { error: `Jumlah tamu melebihi kapasitas kamar (maksimum ${room.max_guests}).` };
+
+	const subtotal = room.price_per_night * nights;
+	const tax = Math.round(subtotal * TAX_RATE);
+	const grandTotal = subtotal + tax;
+	const ref = 'GM' + Math.random().toString(36).substring(2, 9).toUpperCase();
+
+	// Gunakan user_id jika tamu sudah login
+	const userId = authUser?.id || null;
+
+	try {
+		const { rows } = await query(
+			`INSERT INTO bookings (
+				booking_reference, room_id, user_id, check_in, check_out, guests,
+				first_name, last_name, email, phone, nationality, special_request,
+				payment_method, subtotal, tax_amount, grand_total, status
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'ID', $11, $12, $13, $14, $15, 'confirmed')
+			RETURNING id, booking_reference, status`,
+			[ref, room.id, userId, check_in, check_out, guests, first_name, last_name, email, phone, special_request, payment_method, subtotal, tax, grandTotal]
+		);
+
+		return {
+			success: true,
+			booking_reference: ref,
+			booking_id: rows[0].id,
+			room: room.name,
+			room_code: room.code,
+			check_in,
+			check_out,
+			nights,
+			guests,
+			guest_name: `${first_name} ${last_name}`,
+			email,
+			payment_method,
+			subtotal_formatted: formatRupiah(subtotal),
+			tax_formatted: formatRupiah(tax),
+			grand_total_formatted: formatRupiah(grandTotal),
+			grand_total: grandTotal,
+			status: 'confirmed',
+			message: `Reservasi berhasil dibuat dengan referensi ${ref}.`
+		};
+	} catch (error) {
+		return { error: `Database error: ${/** @type {any} */(error)?.message}` };
+	}
 }
 
 /**
  * @param {string} toolName
  * @param {unknown} rawInput
  * @param {any[]} rooms
+ * @param {any} [authUser]
  */
-function runTool(toolName, rawInput, rooms) {
+async function runTool(toolName, rawInput, rooms, authUser) {
 	/** @type {any} */
 	const input = rawInput && typeof rawInput === 'object' ? rawInput : {};
 
 	if (toolName === 'list_rooms') {
 		const availableOnly = input.available_only === true;
-		const filtered = availableOnly ? rooms.filter((room) => room.is_available) : rooms;
-
+		const filtered = availableOnly ? rooms.filter((r) => r.is_available) : rooms;
 		return {
 			count: filtered.length,
-			rooms: filtered.map((room) => ({
-				id: room.id,
-				code: room.code,
-				name: room.name,
-				category: room.category,
-				price_per_night: room.price_per_night,
-				max_guests: room.max_guests,
-				is_available: room.is_available
+			rooms: filtered.map((r) => ({
+				id: r.id, code: r.code, name: r.name, category: r.category,
+				price_per_night: r.price_per_night,
+				price_formatted: formatRupiah(r.price_per_night),
+				max_guests: r.max_guests, is_available: r.is_available
 			}))
 		};
 	}
 
 	if (toolName === 'get_room_detail') {
 		const room = findRoom(rooms, toText(input.room_type));
-		if (!room) {
-			return { error: 'Kamar tidak ditemukan.' };
-		}
-
+		if (!room) return { error: 'Kamar tidak ditemukan.' };
 		return {
 			room: {
-				id: room.id,
-				code: room.code,
-				name: room.name,
-				category: room.category,
+				id: room.id, code: room.code, name: room.name, category: room.category,
 				description: room.description,
 				price_per_night: room.price_per_night,
-				size_sqm: room.size_sqm,
-				max_guests: room.max_guests,
+				price_formatted: formatRupiah(room.price_per_night),
+				size_sqm: room.size_sqm, max_guests: room.max_guests,
 				features: Array.isArray(room.features) ? room.features : [],
 				is_available: room.is_available
 			}
@@ -246,32 +333,20 @@ function runTool(toolName, rawInput, rooms) {
 
 	if (toolName === 'calculate_price') {
 		const room = findRoom(rooms, toText(input.room_type));
-		if (!room) {
-			return { error: 'Kamar tidak ditemukan.' };
-		}
-
+		if (!room) return { error: 'Kamar tidak ditemukan.' };
 		const nights = Math.trunc(toNumber(input.nights));
-		if (!Number.isFinite(nights) || nights < 1) {
-			return { error: 'nights harus bilangan bulat >= 1.' };
-		}
-
+		if (!Number.isFinite(nights) || nights < 1) return { error: 'nights harus >= 1.' };
 		const guests = Math.trunc(toNumber(input.guests));
 		if (Number.isFinite(guests) && guests > room.max_guests) {
-			return { error: `Jumlah tamu melebihi kapasitas kamar (maksimum ${room.max_guests}).` };
+			return { error: `Jumlah tamu melebihi kapasitas (maks ${room.max_guests}).` };
 		}
-
 		const subtotal = room.price_per_night * nights;
 		const tax = Math.round(subtotal * TAX_RATE);
 		const total = subtotal + tax;
-
 		return {
-			room: room.name,
-			room_code: room.code,
-			nights,
+			room: room.name, room_code: room.code, nights,
 			price_per_night: room.price_per_night,
-			subtotal,
-			tax_11pct: tax,
-			grand_total: total,
+			subtotal, tax_11pct: tax, grand_total: total,
 			formatted: {
 				price_per_night: formatRupiah(room.price_per_night),
 				subtotal: formatRupiah(subtotal),
@@ -279,6 +354,10 @@ function runTool(toolName, rawInput, rooms) {
 				grand_total: formatRupiah(total)
 			}
 		};
+	}
+
+	if (toolName === 'create_booking') {
+		return await createBookingDirect(input, rooms, authUser);
 	}
 
 	if (toolName === 'create_booking_link') {
@@ -293,61 +372,24 @@ function runTool(toolName, rawInput, rooms) {
  */
 function mapIncomingMessages(input) {
 	return input
-		.map((message) => ({
+		.map((m) => ({
 			/** @type {'assistant' | 'user'} */
-			role: message?.role === 'assistant' ? 'assistant' : 'user',
-			content: toText(message?.content)
+			role: m?.role === 'assistant' ? 'assistant' : 'user',
+			content: toText(m?.content)
 		}))
-		.filter((message) => message.content !== '');
-}
-
-/**
- * @param {{ role: 'assistant' | 'user'; content: string }[]} messages
- * @param {any[]} rooms
- */
-function buildOfflineFallbackReply(messages, rooms) {
-	const lastUserMessage = [...messages].reverse().find((message) => message.role === 'user')?.content || '';
-	const lastUserText = lastUserMessage.toLowerCase();
-	const requestedCode = ['superior', 'deluxe', 'premier', 'suite'].find((code) =>
-		lastUserText.includes(code)
-	);
-	const requestedRoom = requestedCode ? findRoom(rooms, requestedCode) : null;
-	const nightsMatch = /(\d+)\s*malam/.exec(lastUserText);
-	const nights = nightsMatch ? Math.max(1, Number(nightsMatch[1])) : 1;
-
-	if ((lastUserText.includes('harga') || lastUserText.includes('berapa')) && requestedRoom) {
-		const subtotal = requestedRoom.price_per_night * nights;
-		const tax = Math.round(subtotal * TAX_RATE);
-		const total = subtotal + tax;
-		return `Maaf Tuan/Nyonya, layanan AI sedang offline sementara karena Ollama belum terhubung.\n\nSementara saya bantu hitung cepat:\n- ${requestedRoom.name} (${nights} malam)\n- Harga kamar: ${formatRupiah(requestedRoom.price_per_night)} / malam\n- Subtotal: ${formatRupiah(subtotal)}\n- Pajak 11%: ${formatRupiah(tax)}\n- Total: ${formatRupiah(total)}\n\nSilakan lanjutkan reservasi di /booking?roomType=${requestedRoom.code}. Apakah Anda ingin saya bantu estimasi untuk tipe kamar lain?`;
-	}
-
-	const availableRooms = rooms
-		.filter((room) => room.is_available)
-		.slice(0, 3)
-		.map((room) => `- ${room.name}: ${formatRupiah(room.price_per_night)} / malam`)
-		.join('\n');
-
-	if (availableRooms) {
-		return `Maaf Tuan/Nyonya, layanan AI sedang offline sementara karena Ollama belum terhubung.\n\nSebagai alternatif cepat, berikut kamar yang sedang tersedia:\n${availableRooms}\n\nAnda bisa langsung lanjut ke halaman booking di /booking. Ingin saya bantu pilih kamar sesuai budget Anda?`;
-	}
-
-	return 'Maaf Tuan/Nyonya, layanan AI sedang offline sementara karena Ollama belum terhubung. Silakan coba lagi beberapa saat, atau lanjutkan reservasi langsung di /booking.';
+		.filter((m) => m.content !== '');
 }
 
 /**
  * @param {unknown} error
  */
-function isOllamaUnavailable(error) {
-	const message =
-		error && typeof error === 'object' && 'message' in error ? toText(error.message).toLowerCase() : '';
-
+function isAIUnavailable(error) {
+	const msg = error && typeof error === 'object' && 'message' in error
+		? toText(/** @type {any} */(error).message).toLowerCase() : '';
 	return (
-		message.startsWith('ollama_unavailable:') ||
-		message.includes('connect') ||
-		message.includes('econnrefused') ||
-		message.includes('enotfound') ||
-		message.includes('ehostunreach')
+		msg.startsWith('ollama_unavailable:') ||
+		msg.includes('connect') || msg.includes('econnrefused') ||
+		msg.includes('enotfound') || msg.includes('ehostunreach')
 	);
 }
 
@@ -356,42 +398,49 @@ function isOllamaUnavailable(error) {
  */
 async function callOllama(messages) {
 	let response;
+	let url;
+	let body;
+
+	if (IS_OPENAI_COMPAT) {
+		const base = OLLAMA_BASE_URL.replace(/\/(openai\/)?v1\/?$/, '');
+		const apiPath = IS_GROQ ? '/openai/v1/chat/completions' : '/v1/chat/completions';
+		url = `${base}${apiPath}`;
+		body = JSON.stringify({ model: OLLAMA_MODEL, stream: false, messages });
+	} else {
+		const base = IS_OLLAMA_CLOUD ? 'https://ollama.com' : OLLAMA_BASE_URL;
+		url = `${base}/api/chat`;
+		body = JSON.stringify({ model: OLLAMA_MODEL, stream: false, messages });
+	}
+
+	console.log('[Guest Chat] URL:', url, '| Model:', OLLAMA_MODEL);
+
+	const headers = /** @type {Record<string,string>} */ ({ 'Content-Type': 'application/json' });
+	if (env.OLLAMA_API_KEY) headers['Authorization'] = `Bearer ${env.OLLAMA_API_KEY.trim()}`;
+
 	try {
-		response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({
-				model: OLLAMA_MODEL,
-				stream: false,
-				messages
-			})
-		});
+		response = await fetch(url, { method: 'POST', headers, body });
 	} catch (error) {
-		const message =
-			error && typeof error === 'object' && 'message' in error
-				? toText(error.message)
-				: 'fetch error';
-		throw new Error(`OLLAMA_UNAVAILABLE: ${message}`);
+		const msg = error && typeof error === 'object' && 'message' in error
+			? toText(/** @type {any} */(error).message) : 'fetch error';
+		throw new Error(`OLLAMA_UNAVAILABLE: ${msg}`);
 	}
 
 	if (!response.ok) {
 		const errText = await response.text();
-		throw new Error(`Ollama request gagal: ${errText}`);
+		throw new Error(`AI request gagal: ${errText}`);
 	}
 
 	const data = await response.json();
-	const content = toText(data?.message?.content);
-	if (!content) {
-		throw new Error('Ollama tidak mengembalikan konten respons.');
-	}
+	const content = IS_OPENAI_COMPAT
+		? toText(data?.choices?.[0]?.message?.content)
+		: toText(data?.message?.content);
 
+	if (!content) throw new Error('AI tidak mengembalikan konten respons.');
 	return content;
 }
 
 /** @type {import('./$types').RequestHandler} */
-export async function POST({ request }) {
+export async function POST({ request, cookies }) {
 	/** @type {{ role: 'assistant' | 'user'; content: string }[]} */
 	let messages = [];
 	/** @type {any[]} */
@@ -402,12 +451,15 @@ export async function POST({ request }) {
 		messages = Array.isArray(body?.messages) ? mapIncomingMessages(body.messages) : [];
 		rooms = await getRoomsFromDatabase();
 
-		const dynamicSystemPrompt = `${BASE_SYSTEM_PROMPT}
+		// Cek apakah tamu sudah login
+		const authUser = getAuthenticatedUser(cookies);
+		const userContext = authUser
+			? `\nTamu yang sedang login: ${authUser.email} (ID: ${authUser.id})\nGunakan data ini untuk mengisi email jika tamu ingin booking otomatis.`
+			: '\nTamu belum login. Jika ingin booking otomatis, minta tamu login terlebih dahulu atau gunakan create_booking_link sebagai alternatif.';
 
-Model backend:
-- Gunakan Ollama lokal (${OLLAMA_BASE_URL}) dengan model ${OLLAMA_MODEL}.
+		const dynamicSystemPrompt = `${BASE_SYSTEM_PROMPT}${userContext}
 
-Kamar saat ini (dinamis dari database):
+Kamar tersedia saat ini (dari database):
 ${buildRoomsSummary(rooms)}
 
 ${TOOL_INSTRUCTIONS}`;
@@ -415,51 +467,67 @@ ${TOOL_INSTRUCTIONS}`;
 		/** @type {{ role: 'system' | 'user' | 'assistant'; content: string }[]} */
 		const agentMessages = [{ role: 'system', content: dynamicSystemPrompt }, ...messages];
 
-		for (let i = 0; i < MAX_AGENT_STEPS; i += 1) {
-			const modelOutput = await callOllama(agentMessages);
+		for (let i = 0; i < MAX_AGENT_STEPS; i++) {
+			let modelOutput;
+			try {
+				modelOutput = await callOllama(agentMessages);
+			} catch (error) {
+				if (isAIUnavailable(error)) {
+					return json({
+						reply: 'Maaf, layanan AI sedang tidak tersedia. Silakan kunjungi halaman /booking untuk reservasi langsung.',
+						degraded: true
+					});
+				}
+				throw error;
+			}
+
 			const payload = parseJsonObject(modelOutput);
 
+			// Jika bukan JSON valid, langsung kembalikan sebagai teks
 			if (!payload) {
 				return json({ reply: modelOutput });
 			}
 
 			const action = toText(payload.action).toLowerCase();
+
 			if (action === 'respond') {
 				const reply = toText(payload.reply);
-				return json({ reply: reply || 'Maaf, saya belum bisa memproses permintaan Anda saat ini.' });
+				// Sertakan booking_result jika ada (dari tool create_booking)
+				const bookingResult = payload.booking_result || null;
+				return json({
+					reply: reply || 'Maaf, saya belum bisa memproses permintaan Anda saat ini.',
+					...(bookingResult ? { booking_result: bookingResult } : {})
+				});
 			}
 
 			if (action === 'tool') {
 				const toolName = toText(payload.tool).toLowerCase();
-				const toolResult = runTool(toolName, payload.input, rooms);
+				const toolResult = await runTool(toolName, payload.input, rooms, authUser);
 
-				agentMessages.push({
-					role: 'assistant',
-					content: JSON.stringify(payload)
-				});
+				// Jika booking berhasil, masukkan hasilnya ke konteks agar AI bisa merespons
+				agentMessages.push({ role: 'assistant', content: JSON.stringify(payload) });
 				agentMessages.push({
 					role: 'user',
-					content: `TOOL_RESULT ${toolName}: ${JSON.stringify(toolResult)}. Jika sudah cukup, balas dengan action=respond.`
+					content: `TOOL_RESULT ${toolName}: ${JSON.stringify(toolResult)}. ${
+						toolName === 'create_booking' && /** @type {any} */(toolResult).success
+							? 'Booking berhasil! Sertakan booking_result dalam respons action=respond: ' + JSON.stringify(toolResult)
+							: 'Jika data sudah cukup, balas dengan action=respond.'
+					}`
 				});
 				continue;
 			}
 
-			return json({
-				reply: 'Maaf, saya mengalami kendala memahami aksi internal. Silakan coba pertanyaan lain.'
-			});
+			return json({ reply: 'Maaf, saya mengalami kendala internal. Silakan coba lagi.' });
 		}
 
-		return json({
-			reply: 'Maaf, proses agent memerlukan terlalu banyak langkah. Mohon ringkas pertanyaannya dan coba lagi.'
-		});
+		return json({ reply: 'Maaf, permintaan terlalu kompleks. Mohon ringkas dan coba lagi.' });
 	} catch (error) {
-		if (isOllamaUnavailable(error)) {
+		if (isAIUnavailable(error)) {
 			return json({
-				reply: buildOfflineFallbackReply(messages, rooms),
+				reply: 'Maaf, layanan AI sedang tidak tersedia. Silakan gunakan halaman /booking untuk reservasi.',
 				degraded: true
 			});
 		}
-
 		console.error('POST /api/chat error:', error);
 		return json({ error: 'Gagal memproses chat AI.' }, { status: 500 });
 	}

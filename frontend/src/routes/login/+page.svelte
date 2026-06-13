@@ -1,5 +1,4 @@
-﻿<script>
-  import { goto } from '$app/navigation';
+<script>
   import { API_BASE_URL } from '$lib/config/api';
 
   let email = $state('');
@@ -35,9 +34,9 @@
       }
 
       if (data.data?.user?.role === 'admin') {
-        await goto('/admin');
+        window.location.href = '/admin';
       } else {
-        await goto('/booking');
+        window.location.href = '/';
       }
     } catch {
       error = 'Tidak dapat terhubung ke server.';

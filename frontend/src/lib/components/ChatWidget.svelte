@@ -1,4 +1,4 @@
-﻿<script>
+<script>
   import { tick } from 'svelte';
   import { API_BASE_URL } from '$lib/config/api';
 
@@ -7,7 +7,7 @@
    */
 
   /**
-   * @typedef {{ role: ChatRole; content: string }} ChatMessage
+   * @typedef {{ role: ChatRole; content: string; booking_result?: any }} ChatMessage
    */
 
   let isOpen     = $state(false);
@@ -17,7 +17,7 @@
 
   const WELCOME = /** @type {ChatMessage} */ ({
     role: 'assistant',
-    content: 'Selamat datang di Grand Maison.\n\nSaya **Isabelle**, Concierge AI Anda. Saya siap membantu Anda memilih kamar, menghitung harga, atau menjawab pertanyaan seputar hotel kami.\n\nAda yang bisa saya bantu hari ini?'
+    content: 'Selamat datang di Grand Maison.\n\nSaya **Isabelle**, Concierge AI Anda. Saya siap membantu Anda memilih kamar, menghitung harga, membuat reservasi, atau menjawab pertanyaan seputar hotel kami.\n\nAda yang bisa saya bantu hari ini?'
   });
 
   let messages = $state(/** @type {ChatMessage[]} */ ([WELCOME]));
@@ -25,8 +25,8 @@
   const suggestions = [
     'Kamar apa yang tersedia?',
     'Berapa harga Suite 2 malam?',
+    'Saya ingin pesan kamar sekarang',
     'Fasilitas apa saja yang ada?',
-    'Rekomendasi kamar bulan madu',
   ];
 
   async function send() {
@@ -44,7 +44,7 @@
         .filter((_, i) => i > 0)
         .map(m => ({ role: m.role, content: m.content }));
 
-      const res  = await fetch(`${API_BASE_URL}/api/chat`, {
+      const res = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -52,10 +52,15 @@
       });
 
       const data = await res.json();
-      messages = [
-        ...messages,
-        { role: 'assistant', content: data.reply ?? 'Maaf, terjadi gangguan. Mohon coba lagi.' }
-      ];
+      /** @type {ChatMessage} */
+      const newMsg = {
+        role: 'assistant',
+        content: data.reply ?? 'Maaf, terjadi gangguan. Mohon coba lagi.'
+      };
+      if (data.booking_result?.success) {
+        newMsg.booking_result = data.booking_result;
+      }
+      messages = [...messages, newMsg];
     } catch {
       messages = [
         ...messages,
@@ -184,6 +189,42 @@
               </a>
             {/if}
           </div>
+
+          <!-- Booking confirmation card -->
+          {#if msg.booking_result?.success}
+            <div class="cw-booking-card">
+              <div class="cw-booking-card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="cw-check-icon">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <span>Reservasi Berhasil!</span>
+              </div>
+              <div class="cw-booking-card-body">
+                <div class="cw-booking-ref">#{msg.booking_result.booking_reference}</div>
+                <div class="cw-booking-detail">
+                  <span class="cw-booking-label">Kamar</span>
+                  <span>{msg.booking_result.room}</span>
+                </div>
+                <div class="cw-booking-detail">
+                  <span class="cw-booking-label">Check-in</span>
+                  <span>{msg.booking_result.check_in}</span>
+                </div>
+                <div class="cw-booking-detail">
+                  <span class="cw-booking-label">Check-out</span>
+                  <span>{msg.booking_result.check_out} ({msg.booking_result.nights} malam)</span>
+                </div>
+                <div class="cw-booking-detail">
+                  <span class="cw-booking-label">Tamu</span>
+                  <span>{msg.booking_result.guest_name}</span>
+                </div>
+                <div class="cw-booking-total">
+                  <span>Total</span>
+                  <span>{msg.booking_result.grand_total_formatted}</span>
+                </div>
+              </div>
+              <a href="/riwayat" class="cw-booking-view-btn">Lihat Reservasi Saya →</a>
+            </div>
+          {/if}
         </div>
       {/each}
 
@@ -480,6 +521,90 @@
   .cw-booking-btn:hover {
     background: rgba(212, 160, 23, 0.17);
     border-color: rgba(212, 160, 23, 0.55);
+  }
+
+  /* -- Booking Confirmation Card -- */
+  .cw-booking-card {
+    margin-top: 0.6rem;
+    max-width: 90%;
+    border: 1px solid rgba(212, 160, 23, 0.35);
+    background: rgba(20, 8, 14, 0.95);
+    overflow: hidden;
+    animation: fade-up 0.3s ease forwards;
+  }
+  .cw-booking-card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(212, 160, 23, 0.08);
+    border-bottom: 1px solid rgba(212, 160, 23, 0.18);
+    font-family: 'EB Garamond', serif;
+    font-size: 0.62rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: rgba(212, 160, 23, 0.85);
+  }
+  .cw-check-icon {
+    width: 0.95rem;
+    height: 0.95rem;
+    color: #4ade80;
+    flex-shrink: 0;
+  }
+  .cw-booking-card-body {
+    padding: 0.65rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .cw-booking-ref {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1rem;
+    color: #d4a017;
+    font-weight: 300;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.3rem;
+  }
+  .cw-booking-detail {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-family: 'EB Garamond', serif;
+    font-size: 0.75rem;
+    color: rgba(237, 224, 204, 0.75);
+  }
+  .cw-booking-label {
+    color: rgba(212, 160, 23, 0.45);
+    flex-shrink: 0;
+  }
+  .cw-booking-total {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.35rem;
+    padding-top: 0.35rem;
+    border-top: 1px solid rgba(212, 160, 23, 0.15);
+    font-family: 'EB Garamond', serif;
+    font-size: 0.82rem;
+    color: #d4a017;
+    font-weight: 600;
+  }
+  .cw-booking-view-btn {
+    display: block;
+    text-align: center;
+    padding: 0.42rem 0.75rem;
+    font-family: 'EB Garamond', serif;
+    font-size: 0.58rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: rgba(212, 160, 23, 0.7);
+    background: rgba(212, 160, 23, 0.06);
+    border-top: 1px solid rgba(212, 160, 23, 0.18);
+    text-decoration: none;
+    transition: background 0.22s, color 0.22s;
+  }
+  .cw-booking-view-btn:hover {
+    background: rgba(212, 160, 23, 0.13);
+    color: rgba(212, 160, 23, 0.95);
   }
 
   /* â”€â”€ Quick suggestions â”€â”€ */
