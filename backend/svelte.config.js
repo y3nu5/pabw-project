@@ -12,7 +12,7 @@ const config = {
 				'http://localhost:5173',
 				'http://localhost:3000',
 				// Tambahkan URL Vercel frontend kamu di sini setelah deploy:
-				// 'https://grand-maison-frontend.vercel.app',
+				'https://pabw-project-c8qe0om6f-web-layanan-pijats-projects.vercel.app/',
 			]
 		},
 		alias: {
