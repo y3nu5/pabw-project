@@ -11,8 +11,7 @@ const config = {
 			trustedOrigins: [
 				'http://localhost:5173',
 				'http://localhost:3000',
-				// Tambahkan URL Vercel frontend kamu di sini setelah deploy:
-				// 
+				'https://pabw-project.vercel.app',
 			]
 		},
 		alias: {
