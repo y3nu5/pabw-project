@@ -7,7 +7,7 @@ const config = {
 			// Pakai Node.js runtime (bukan edge) karena backend pakai pg, bcryptjs, jwt
 			runtime: 'nodejs22.x'
 		}),
-		csrf: false,
+
 		alias: {
 			'$lib': 'src/lib'
 		}
