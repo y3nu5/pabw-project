@@ -7,13 +7,7 @@ const config = {
 			// Pakai Node.js runtime (bukan edge) karena backend pakai pg, bcryptjs, jwt
 			runtime: 'nodejs22.x'
 		}),
-		csrf: {
-			trustedOrigins: [
-				'http://localhost:5173',
-				'http://localhost:3000',
-				'https://grand-maison-frontend.vercel.app',
-			]
-		},
+		csrf: false,
 		alias: {
 			'$lib': 'src/lib'
 		}
