@@ -50,6 +50,11 @@
         return;
       }
 
+      if (data.data?.token) {
+        // Simpan token ke cookie agar status login langsung aktif setelah daftar
+        document.cookie = `auth_token=${data.data.token}; path=/; max-age=604800; SameSite=Lax; Secure`;
+      }
+
       await goto('/booking');
     } catch {
       error = 'Tidak dapat terhubung ke server.';
