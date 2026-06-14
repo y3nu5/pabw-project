@@ -31,6 +31,18 @@ function isOriginAllowed(origin) {
 
 /** @type {import('@sveltejs/kit').Handle} */
 export async function handle({ event, resolve }) {
+	// Dukung Authorization Header (Bearer Token) untuk client-side cross-origin fetches
+	const originalGet = event.cookies.get;
+	event.cookies.get = (name) => {
+		if (name === 'auth_token') {
+			const authHeader = event.request.headers.get('authorization');
+			if (authHeader && authHeader.startsWith('Bearer ')) {
+				return authHeader.substring(7);
+			}
+		}
+		return originalGet.call(event.cookies, name);
+	};
+
 	const origin = event.request.headers.get('origin') || '';
 	const allowed = isOriginAllowed(origin);
 	const corsOrigin = allowed ? origin : 'null';
