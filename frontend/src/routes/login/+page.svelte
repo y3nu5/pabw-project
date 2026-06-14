@@ -33,6 +33,11 @@
         return;
       }
 
+      if (data.data?.token) {
+        // Simpan token ke cookie domain frontend agar terkirim ke server load function
+        document.cookie = `auth_token=${data.data.token}; path=/; max-age=604800; SameSite=Lax; Secure`;
+      }
+
       if (data.data?.user?.role === 'admin') {
         window.location.href = '/admin';
       } else {
