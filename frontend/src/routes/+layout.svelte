@@ -1,7 +1,7 @@
 <script>
   import '../app.css';
   import { page } from '$app/state';
-  import { onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import { API_BASE_URL } from '$lib/config/api';
   import Header from '$lib/components/Header.svelte';
   import Footer from '$lib/components/Footer.svelte';
@@ -9,7 +9,7 @@
 
   let isAdminRoute = $derived(page.url.pathname.startsWith('/admin'));
 
-  onMount(() => {
+  if (browser) {
     // Intersept fetch di browser untuk menyisipkan header Authorization (Bearer Token)
     const originalFetch = window.fetch;
     window.fetch = function(input, init) {
@@ -34,7 +34,7 @@
       }
       return originalFetch.call(this, input, init);
     };
-  });
+  }
 </script>
 
 {#if !isAdminRoute}
