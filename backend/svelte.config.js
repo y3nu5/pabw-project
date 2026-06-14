@@ -11,7 +11,7 @@ const config = {
 			trustedOrigins: [
 				'http://localhost:5173',
 				'http://localhost:3000',
-				'https://pabw-project.vercel.app',
+				'https://grand-maison-frontend.vercel.app',
 			]
 		},
 		alias: {
